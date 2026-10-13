@@ -3,8 +3,10 @@ import json
 import time
 import os
 
-with open('test_pid.txt') as f:
-    pid = f.read().strip()
+pid = 'proj_3edb76b0'
+if os.path.exists('test_pid.txt'):
+    with open('test_pid.txt') as f:
+        pid = f.read().strip()
 
 print(f"--- 1. Testing Audio Analysis for {pid} ---")
 req = urllib.request.Request(

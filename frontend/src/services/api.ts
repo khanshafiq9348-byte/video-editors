@@ -281,6 +281,23 @@ export const api = {
     const localProj = getLocalProject(projectId);
     const existingCount = localProj?.assets?.length || 0;
 
+    let detectedDur: number | null = null;
+    try {
+      detectedDur = await new Promise<number | null>((resolve) => {
+        const audio = new Audio(blobUrl);
+        audio.onloadedmetadata = () => {
+          if (Number.isFinite(audio.duration) && audio.duration > 0) {
+            resolve(Math.round(audio.duration * 100) / 100);
+          } else {
+            resolve(null);
+          }
+        };
+        audio.onerror = () => resolve(null);
+      });
+    } catch (e) {
+      // ignore
+    }
+
     const asset: Asset = {
       id: `audio_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       project_id: projectId,
@@ -289,7 +306,7 @@ export const api = {
       storage_path: file.name,
       order_index: existingCount,
       url: blobUrl,
-      duration: 10,
+      duration: detectedDur || 12,
     };
 
     if (localProj) {
@@ -347,24 +364,73 @@ export const api = {
     }
 
     const localProj = getLocalProject(projectId);
-    const sentences: SentenceItem[] = [
-      {
-        id: `sent_${Date.now()}_1`,
-        order_index: 0,
-        text: 'Welcome to this presentation.',
-        start_time: 0,
-        end_time: 3.5,
-        confidence: 1.0,
-      },
-      {
-        id: `sent_${Date.now()}_2`,
-        order_index: 1,
-        text: 'This video demonstrates automated scene generation.',
-        start_time: 3.5,
-        end_time: 7.0,
-        confidence: 1.0,
-      },
-    ];
+    const audioAsset = (localProj?.assets || []).find((a) => a.type === 'audio');
+    const audioDur = audioAsset?.duration || 12;
+
+    let sentences: SentenceItem[] = [];
+    const scriptText = (localProj?.script || '').trim();
+    if (scriptText) {
+      const rawSentences = scriptText
+        .split(/(?<=[.?!])\s+|\n+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+
+      if (rawSentences.length > 0) {
+        const wordCounts = rawSentences.map((s) => Math.max(1, s.split(/\s+/).length));
+        const totalWords = wordCounts.reduce((acc, c) => acc + c, 0);
+
+        let currTime = 0.05;
+        sentences = rawSentences.map((text, idx) => {
+          const sentDur = (wordCounts[idx] / totalWords) * Math.max(1.5, audioDur - 0.2);
+          const st = Math.round(currTime * 100) / 100;
+          const et = Math.round((currTime + Math.max(1.0, sentDur)) * 100) / 100;
+          currTime = et + 0.1;
+
+          // Generate word-level timestamps
+          const rawWords = text.split(/\s+/).filter(Boolean);
+          const wStep = (et - st) / Math.max(1, rawWords.length);
+          const words = rawWords.map((w, wIdx) => ({
+            word: w,
+            start: Math.round((st + wIdx * wStep) * 100) / 100,
+            end: Math.round((st + (wIdx + 1) * wStep) * 100) / 100,
+          }));
+
+          return {
+            id: `sent_${Date.now()}_${idx + 1}`,
+            order_index: idx,
+            text,
+            start_time: st,
+            end_time: et,
+            confidence: 0.95,
+            words,
+          };
+        });
+      }
+    }
+
+    if (sentences.length === 0) {
+      // Dynamic sentences strictly based on actual audio duration
+      const p1 = Math.round((audioDur * 0.45) * 100) / 100;
+      sentences = [
+        {
+          id: `sent_${Date.now()}_1`,
+          order_index: 0,
+          text: 'Welcome to this presentation.',
+          start_time: 0.1,
+          end_time: p1,
+          confidence: 1.0,
+        },
+        {
+          id: `sent_${Date.now()}_2`,
+          order_index: 1,
+          text: 'This video demonstrates automated scene generation.',
+          start_time: Math.round((p1 + 0.3) * 100) / 100,
+          end_time: Math.round(audioDur * 0.95 * 100) / 100,
+          confidence: 1.0,
+        },
+      ];
+    }
+
     if (localProj) {
       localProj.sentences = sentences;
       saveLocalProject(localProj);
@@ -433,33 +499,234 @@ export const api = {
     const localProj = getLocalProject(projectId);
     const visualAssets = (localProj?.assets || []).filter((a) => a.type === 'image' || a.type === 'video');
     const audioAsset = (localProj?.assets || []).find((a) => a.type === 'audio');
+    const sentences = (localProj?.sentences || []).filter((s) => s.text && s.text.trim());
 
-    const fps = 30;
-    const sceneDur = 90;
-    let currStart = 0;
+    const fps = localProj?.settings?.fps || 30;
+    const numImages = visualAssets.length;
+    const numSentences = sentences.length;
+
+    // Helper for Ken Burns transform parameters for distinct animations
+    const getKenBurnsParams = (type: string, intensity: number = 0.15) => {
+      const shift = Math.round(intensity * 400);
+      switch (type) {
+        case 'zoom_out':
+          return { startScale: 1.18, endScale: 1.0, startX: 0, endX: 0, startY: 0, endY: 0 };
+        case 'pan_left':
+          return { startScale: 1.10, endScale: 1.10, startX: shift, endX: -shift, startY: 0, endY: 0 };
+        case 'pan_right':
+          return { startScale: 1.10, endScale: 1.10, startX: -shift, endX: shift, startY: 0, endY: 0 };
+        case 'pan_up':
+          return { startScale: 1.10, endScale: 1.10, startX: 0, endX: 0, startY: Math.round(shift * 0.8), endY: -Math.round(shift * 0.8) };
+        case 'pan_down':
+          return { startScale: 1.10, endScale: 1.10, startX: 0, endX: 0, startY: -Math.round(shift * 0.8), endY: Math.round(shift * 0.8) };
+        case 'zoom_pan':
+          return { startScale: 1.0, endScale: 1.15, startX: -Math.round(shift * 0.6), endX: Math.round(shift * 0.6), startY: 0, endY: -Math.round(shift * 0.3) };
+        case 'static':
+          return { startScale: 1.0, endScale: 1.0, startX: 0, endX: 0, startY: 0, endY: 0 };
+        case 'zoom_in':
+        default:
+          return { startScale: 1.0, endScale: 1.15, startX: 0, endX: 0, startY: 0, endY: 0 };
+      }
+    };
+
     const effCycle = ['pan_left', 'zoom_out', 'pan_right', 'zoom_in', 'pan_up', 'zoom_pan'];
-    const scenes: SceneItem[] = visualAssets.map((asset, idx) => {
+    const transCycle = ['crossfade', 'slide_left', 'crossfade', 'zoom', 'crossfade', 'slide_right'];
+    const totalAudioDuration = audioAsset?.duration || 0;
+
+    interface RawScene {
+      assetId: string;
+      sentenceId?: string;
+      startSec: number;
+      endSec: number;
+    }
+
+    const rawScenes: RawScene[] = [];
+
+    // CASE 1: Sentences exist with timestamps from voiceover
+    if (numSentences > 0 && numImages > 0) {
+      const sorted = [...sentences].sort((a, b) => a.start_time - b.start_time);
+      const totalEndSec = Math.max(sorted[sorted.length - 1].end_time, totalAudioDuration || 0);
+
+      if (numImages === numSentences) {
+        // Exact 1-to-1: visual duration directly equals spoken sentence duration
+        for (let i = 0; i < numImages; i++) {
+          const st = i === 0 ? 0.0 : sorted[i].start_time;
+          const et = i < numImages - 1 ? sorted[i + 1].start_time : totalEndSec;
+          rawScenes.push({
+            assetId: visualAssets[i].id,
+            sentenceId: sorted[i].id,
+            startSec: st,
+            endSec: Math.max(st + 0.5, et),
+          });
+        }
+      } else if (numImages > numSentences) {
+        // More images than sentences: split longer sentences into speech-accurate segments
+        const durations = sorted.map((s) => Math.max(0.2, s.end_time - s.start_time));
+        const counts = Array(numSentences).fill(1);
+        let rem = numImages - numSentences;
+        while (rem > 0) {
+          let maxIdx = 0;
+          let maxVal = durations[0] / counts[0];
+          for (let k = 1; k < numSentences; k++) {
+            const v = durations[k] / counts[k];
+            if (v > maxVal) {
+              maxVal = v;
+              maxIdx = k;
+            }
+          }
+          counts[maxIdx]++;
+          rem--;
+        }
+
+        let currImgIdx = 0;
+        for (let j = 0; j < numSentences; j++) {
+          const st = j === 0 ? 0.0 : sorted[j].start_time;
+          const et = j < numSentences - 1 ? sorted[j + 1].start_time : totalEndSec;
+          const c = counts[j];
+          const words = (sorted[j].words as any[]) || [];
+
+          let subSpans: { st: number; et: number }[] = [];
+          if (c > 1 && words.length >= c) {
+            // Cut precisely at word timestamps
+            const cuts: number[] = [];
+            let prevIdx = 0;
+            for (let m = 1; m < c; m++) {
+              const ideal = st + m * ((et - st) / c);
+              let bestCand: { idx: number; time: number } | null = null;
+              let bestScore = -999999;
+              for (let k = prevIdx; k < words.length - (c - m); k++) {
+                const w = words[k];
+                const wNext = words[k + 1];
+                const tCut = Number(wNext.start);
+                let score = 0;
+                const pause = Number(wNext.start) - Number(w.end);
+                if (pause >= 0.04) score += Math.min(3.5, pause * 5.0);
+                if (/[,\;:–\-]/.test(w.word)) score += 2.5;
+                if (/^(and|but|or|while|where|which|because|with|when|that|so|as)$/i.test(wNext.word)) score += 2.0;
+                score -= Math.abs(tCut - ideal) * 0.5;
+                if (score > bestScore) {
+                  bestScore = score;
+                  bestCand = { idx: k, time: tCut };
+                }
+              }
+              if (bestCand) {
+                prevIdx = bestCand.idx + 1;
+                cuts.push(bestCand.time);
+              } else {
+                cuts.push(ideal);
+              }
+            }
+            cuts.sort((a, b) => a - b);
+            const times = [st, ...cuts, et];
+            subSpans = Array.from({ length: c }, (_, idx) => ({ st: times[idx], et: times[idx + 1] }));
+          } else {
+            const step = (et - st) / c;
+            subSpans = Array.from({ length: c }, (_, idx) => ({ st: st + idx * step, et: st + (idx + 1) * step }));
+          }
+
+          for (const span of subSpans) {
+            rawScenes.push({
+              assetId: visualAssets[currImgIdx].id,
+              sentenceId: sorted[j].id,
+              startSec: span.st,
+              endSec: Math.max(span.st + 0.5, span.et),
+            });
+            currImgIdx++;
+          }
+        }
+      } else {
+        // Fewer images than sentences: group sentences into contiguous blocks
+        const sentDurs = sorted.map((s) => Math.max(0.2, s.end_time - s.start_time));
+        const totalDur = sentDurs.reduce((acc, d) => acc + d, 0);
+        const targetPerImg = totalDur / numImages;
+
+        const groupStarts = [0];
+        let currAccum = 0;
+        let currSent = 0;
+        for (let i = 1; i < numImages; i++) {
+          const target = i * targetPerImg;
+          while (currSent < numSentences - 1 && (currAccum + sentDurs[currSent]) < target) {
+            currAccum += sentDurs[currSent];
+            currSent++;
+          }
+          currAccum += sentDurs[currSent];
+          currSent = Math.min(currSent + 1, numSentences - (numImages - i));
+          groupStarts.push(currSent);
+        }
+
+        for (let i = 0; i < numImages; i++) {
+          const firstIdx = groupStarts[i];
+          const st = i === 0 ? 0.0 : sorted[firstIdx].start_time;
+          const et = i < numImages - 1 ? sorted[groupStarts[i + 1]].start_time : totalEndSec;
+          rawScenes.push({
+            assetId: visualAssets[i].id,
+            sentenceId: sorted[firstIdx].id,
+            startSec: st,
+            endSec: Math.max(st + 0.5, et),
+          });
+        }
+      }
+    } else if (totalAudioDuration > 0 && numImages > 0) {
+      // CASE 2: Audio exists without sentences: dynamically distribute total audio length
+      const durPerImg = totalAudioDuration / numImages;
+      for (let i = 0; i < numImages; i++) {
+        const st = i * durPerImg;
+        const et = (i === numImages - 1) ? totalAudioDuration : (i + 1) * durPerImg;
+        rawScenes.push({
+          assetId: visualAssets[i].id,
+          startSec: st,
+          endSec: Math.max(st + 0.5, et),
+        });
+      }
+    } else {
+      // CASE 3: Visuals only
+      const baseDur = 4.0;
+      for (let i = 0; i < numImages; i++) {
+        rawScenes.push({
+          assetId: visualAssets[i].id,
+          startSec: i * baseDur,
+          endSec: (i + 1) * baseDur,
+        });
+      }
+    }
+
+    // Build contiguous frame-accurate SceneItem list
+    let currFrame = 0;
+    const totalScenes = rawScenes.length;
+    const scenes: SceneItem[] = rawScenes.map((raw, idx) => {
+      const sceneStart = currFrame;
+      let targetEnd = Math.round(raw.endSec * fps);
+      if (idx === totalScenes - 1 && totalAudioDuration > 0) {
+        targetEnd = Math.max(targetEnd, Math.round(totalAudioDuration * fps));
+      }
+      const sceneEnd = Math.max(sceneStart + 15, targetEnd);
+      const sceneDur = sceneEnd - sceneStart;
+      currFrame = sceneEnd;
+
       const effType = effCycle[idx % effCycle.length];
-      const s: SceneItem = {
+      const motionParams = getKenBurnsParams(effType, 0.15);
+      const transType = (idx === totalScenes - 1) ? null : transCycle[idx % transCycle.length];
+
+      return {
         id: `scene_${Date.now()}_${idx}`,
-        imageAssetId: asset.id,
-        startFrame: currStart,
+        imageAssetId: raw.assetId,
+        sentenceId: raw.sentenceId,
+        startFrame: sceneStart,
         durationFrames: sceneDur,
-        endFrame: currStart + sceneDur,
+        endFrame: sceneEnd,
         effect: {
           type: effType,
           intensity: 0.15,
+          ...motionParams,
         },
-        transitionOut: {
-          type: 'crossfade',
-          durationFrames: 12,
-        },
+        transitionOut: transType ? {
+          type: transType,
+          durationFrames: Math.max(6, Math.min(12, Math.floor(sceneDur / 3))),
+        } : null,
       };
-      currStart += sceneDur;
-      return s;
     });
 
-    const totalDur = Math.max(300, currStart);
+    const totalDur = Math.max(15, currFrame);
     const settings = localProj?.settings || createDefaultSettings();
     const audioObj: TimelineAudio | null = audioAsset
       ? {

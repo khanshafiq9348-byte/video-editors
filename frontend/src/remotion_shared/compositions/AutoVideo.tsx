@@ -76,12 +76,14 @@ export const AutoVideoComposition: React.FC<AutoVideoCompositionProps> = ({
               <KenBurns
                 src={imageUrl || ''}
                 durationFrames={durationFrames}
-                startScale={effect.startScale ?? 1.0}
-                endScale={effect.endScale ?? 1.15}
-                startX={effect.startX ?? 0}
-                endX={effect.endX ?? 0}
-                startY={effect.startY ?? 0}
-                endY={effect.endY ?? 0}
+                effectType={effect?.type}
+                intensity={effect?.intensity}
+                startScale={effect?.startScale}
+                endScale={effect?.endScale}
+                startX={effect?.startX}
+                endX={effect?.endX}
+                startY={effect?.startY}
+                endY={effect?.endY}
                 fitMode={fitMode}
                 colorTone={colorTone}
               />

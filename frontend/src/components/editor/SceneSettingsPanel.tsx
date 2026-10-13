@@ -199,14 +199,39 @@ export const SceneSettingsPanel: React.FC = () => {
             value={scene.effect.type}
             onChange={(e) => {
               const val = e.target.value;
+              let sScale = 1.0;
+              let eScale = 1.15;
+              let sX = 0;
+              let eX = 0;
+              let sY = 0;
+              let eY = 0;
+              if (val === 'zoom_out') {
+                sScale = 1.18; eScale = 1.0;
+              } else if (val === 'pan_left') {
+                sScale = 1.10; eScale = 1.10; sX = 60; eX = -60;
+              } else if (val === 'pan_right') {
+                sScale = 1.10; eScale = 1.10; sX = -60; eX = 60;
+              } else if (val === 'pan_up') {
+                sScale = 1.10; eScale = 1.10; sY = 50; eY = -50;
+              } else if (val === 'pan_down') {
+                sScale = 1.10; eScale = 1.10; sY = -50; eY = 50;
+              } else if (val === 'zoom_pan') {
+                sScale = 1.0; eScale = 1.15; sX = -40; eX = 40; sY = 0; eY = -20;
+              } else if (val === 'static') {
+                sScale = 1.0; eScale = 1.0;
+              } else { // zoom_in
+                sScale = 1.0; eScale = 1.15;
+              }
               updateScene(scene.id, {
                 effect: {
                   ...scene.effect,
                   type: val,
-                  startScale: val === 'zoom_in' ? 1.0 : (val === 'zoom_out' ? 1.2 : 1.05),
-                  endScale: val === 'zoom_in' ? 1.2 : (val === 'zoom_out' ? 1.0 : 1.05),
-                  startX: val === 'pan_left' ? 30 : (val === 'pan_right' ? -30 : 0),
-                  endX: val === 'pan_left' ? -30 : (val === 'pan_right' ? 30 : 0),
+                  startScale: sScale,
+                  endScale: eScale,
+                  startX: sX,
+                  endX: eX,
+                  startY: sY,
+                  endY: eY,
                 },
               });
             }}

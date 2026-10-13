@@ -37,6 +37,7 @@ export interface SentenceItem {
   start_time: number;
   end_time: number;
   confidence: number;
+  words?: Array<{ word: string; start: number; end: number; confidence?: number }>;
 }
 
 export interface SceneEffect {
