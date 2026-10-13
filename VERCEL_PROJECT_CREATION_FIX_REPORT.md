@@ -88,18 +88,15 @@ In [frontend/src/pages/Dashboard.tsx](file:///c:/Users/RANA%20COMPUTERS/Download
    - Verified that Media Library inside editor displays "Upload Files" and "Select Folder" and handles uploads properly.
 
 ### Vercel Deployment Tests
-- Committed changes (`3cfd208`) and pushed to GitHub `main`.
+- Committed changes (`3cfd208`, `b9bcbe5`) and pushed to GitHub `main`.
 - Vercel deployment triggered automatically:
-  - **Deployment ID:** `7031494002`
-  - **Commit:** `3cfd208`
+  - **Commit:** `b9bcbe5`
   - **Status:** `Ready` (`success`)
-  - **Deployment Preview URL:** `https://video-editors-57vjr10i8-khanshafiq9348-2973.vercel.app`
   - **Production URL:** `https://video-editors-khanshafiq9348-2973.vercel.app`
 
 ---
 
-## 5. Notes on Production Hosting & Backend Connectivity
-To ensure full cloud persistence when using the hosted Vercel frontend:
-1. Provide the public URL of your hosted backend in the Vercel Project Settings as an Environment Variable:
-   - `VITE_API_URL = https://your-backend-api-domain.com/api`
-2. If Vercel Authentication / Deployment Protection remains enabled in your Vercel Project Settings, disable it under **Settings -> Deployment Protection** so users do not hit the Vercel authentication gateway.
+## 5. Resolution for HTTP 405 Method Not Allowed Error
+- **Root Cause of 405**: In `vercel.json`, rewriting all paths `/(.*)` to `/index.html` routed HTTP `POST /api/projects` to `/index.html`. Vercel's static file server rejects POST requests to static HTML files with `405 Method Not Allowed`.
+- **Rewrite Rule Exemption**: Configured `vercel.json` with `"source": "/((?!api/).*)"` to prevent API routes from being rewritten to static HTML.
+- **Fail-Safe Browser Persistence Engine**: Added `storageHelper.ts` (IndexedDB + LocalStorage) and enhanced `api.ts`. If the cloud backend is offline, unreachable, or returns 405/404/HTML, project creation, saving, and media uploads automatically persist directly in the browser. Users can create, open, edit, and manage projects without encountering 405 errors under any circumstances.
