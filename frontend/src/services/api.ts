@@ -879,8 +879,12 @@ export const api = {
         return res.data;
       }
     } catch (e: any) {
-      // Backend unavailable, 404 on Vercel, or local project: seamlessly fall back to client-side generator
-      console.warn('[Captions] Backend API call returned', e?.response?.status || e?.message, 'falling back to client generator');
+      // Backend returned an error response: propagate actual error to the user!
+      if (e?.response) {
+        const errorDetail = e.response.data?.detail || e.message;
+        throw new Error(errorDetail);
+      }
+      console.warn('[Captions] Backend unavailable, falling back to local store:', e?.message);
     }
 
     const localProj = getLocalProject(projectId);
@@ -945,30 +949,9 @@ export const api = {
       });
     }
 
-    // If still no segments (no audio, no script, no sentences), synthesize friendly starter segments across audio or default
+    // Never return fake placeholder text: if no speech could be aligned, report clear error
     if (segments.length === 0) {
-      const audioAsset = (localProj?.assets || []).find((a) => a.type === 'audio');
-      const totalDur = audioAsset?.duration || 10;
-      const sampleText = 'Welcome to AutoVideo Studio. High performance video generation and captions.';
-      const sampleWords = sampleText.split(/\s+/).filter(Boolean);
-      const wStep = totalDur / sampleWords.length;
-      segments = [{
-        id: 'seg_001',
-        text: sampleText,
-        startTime: 0.1,
-        endTime: Math.min(totalDur, 5.0),
-        startFrame: 3,
-        endFrame: Math.round(Math.min(totalDur, 5.0) * fps),
-        words: sampleWords.map((txt, idx) => ({
-          id: `w_1_${idx + 1}`,
-          text: txt,
-          startTime: Number((0.1 + idx * wStep).toFixed(3)),
-          endTime: Number((0.1 + (idx + 1) * wStep).toFixed(3)),
-          startFrame: Math.round((0.1 + idx * wStep) * fps),
-          endFrame: Math.round((0.1 + (idx + 1) * wStep) * fps),
-          confidence: 1.0,
-        })),
-      }];
+      throw new Error('No spoken voiceover detected. Please upload an audio or video file with clear speech.');
     }
 
     const realCaptions = {

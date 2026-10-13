@@ -114,6 +114,33 @@ def extract_word_timestamps_from_audio(audio_path: str) -> List[Dict[str, Any]]:
             except Exception:
                 pass
 
+def _enrich_words_from_script(raw_words: List[Dict[str, Any]], user_script: str) -> List[Dict[str, Any]]:
+    """Restores capitalization, punctuation, and proper nouns from user script onto acoustic word timestamps."""
+    if not user_script or not raw_words:
+        return raw_words
+    import difflib
+    script_tokens = [t.strip() for t in user_script.split() if t.strip()]
+    if not script_tokens:
+        return raw_words
+
+    script_idx = 0
+    enriched = []
+    for w in raw_words:
+        w_clean = re.sub(r'[^\w]', '', w["word"]).lower()
+        matched_token = None
+        for s_i in range(script_idx, min(len(script_tokens), script_idx + 8)):
+            s_clean = re.sub(r'[^\w]', '', script_tokens[s_i]).lower()
+            if s_clean == w_clean or difflib.SequenceMatcher(None, s_clean, w_clean).ratio() > 0.75:
+                matched_token = script_tokens[s_i]
+                script_idx = s_i + 1
+                break
+
+        item = dict(w)
+        if matched_token:
+            item["word"] = matched_token
+        enriched.append(item)
+    return enriched
+
 def group_words_into_segments(
     raw_words: List[Dict[str, Any]],
     fps: int = 30,
@@ -121,11 +148,15 @@ def group_words_into_segments(
     user_script: Optional[str] = None
 ) -> List[CaptionSegment]:
     """
-    Groups acoustic words into natural, readable caption segments (3-6 words per line)
-    breaking on natural speech pauses (>= 0.35s) or sentence boundaries.
+    Groups acoustic words into natural, readable sentence-level caption segments
+    breaking on natural speech pauses (>= 0.35s) or sentence punctuation boundaries.
+    Preserves precise word timestamps, spacing, and punctuation.
     """
     if not raw_words:
         return []
+
+    if user_script:
+        raw_words = _enrich_words_from_script(raw_words, user_script)
 
     segments: List[CaptionSegment] = []
     current_words: List[CaptionWord] = []
@@ -133,8 +164,12 @@ def group_words_into_segments(
 
     for idx, w in enumerate(raw_words):
         w_text = w["word"].strip()
-        w_start = round(w["start"], 3)
-        w_end = round(w["end"], 3)
+        # Capitalize first word of segment if not capitalized and no user script
+        if not user_script and len(current_words) == 0 and w_text:
+            w_text = w_text.capitalize()
+
+        w_start = round(float(w["start"]), 3)
+        w_end = round(float(w["end"]), 3)
         w_start_frame = int(round(w_start * fps))
         w_end_frame = max(w_start_frame + 1, int(round(w_end * fps)))
 
@@ -145,20 +180,21 @@ def group_words_into_segments(
             endFrame=w_end_frame,
             startTime=w_start,
             endTime=w_end,
-            confidence=w.get("conf", 1.0)
+            confidence=float(w.get("conf", 1.0))
         )
         current_words.append(c_word)
 
         is_last = (idx == len(raw_words) - 1)
         is_break = False
+        pause_to_next = 0.0
         if not is_last:
             next_start = float(raw_words[idx + 1]["start"])
-            pause = next_start - w_end
+            pause_to_next = max(0.0, next_start - w_end)
             # Break if natural speech pause is detected
-            if pause >= 0.35:
+            if pause_to_next >= 0.35:
                 is_break = True
-            # Break if segment reached preferred word count
-            elif len(current_words) >= words_per_segment and pause >= 0.18:
+            # Break if segment reached preferred word count with slight pause
+            elif len(current_words) >= words_per_segment and pause_to_next >= 0.18:
                 is_break = True
             elif len(current_words) >= (words_per_segment + 3):
                 is_break = True
@@ -168,10 +204,20 @@ def group_words_into_segments(
 
         if is_last or is_break:
             seg_start_time = current_words[0].start_time or 0.0
-            seg_end_time = current_words[-1].end_time or (seg_start_time + 1.0)
+            # Natural padding for caption readability on screen during pauses
+            base_end_time = current_words[-1].end_time or (seg_start_time + 1.0)
+            if pause_to_next > 0.08:
+                seg_end_time = base_end_time + min(0.35, pause_to_next - 0.05)
+            else:
+                seg_end_time = base_end_time
+
             seg_start_frame = current_words[0].start_frame
-            seg_end_frame = current_words[-1].end_frame
+            seg_end_frame = max(seg_start_frame + 5, int(round(seg_end_time * fps)))
             seg_text = " ".join([cw.text for cw in current_words])
+
+            # Ensure sentence ending punctuation if it was a pause-based break and has no punctuation
+            if not re.search(r'[.!?,;:]$', seg_text):
+                seg_text = seg_text + "."
 
             seg_id = f"cap_seg_{seg_idx+1:03d}_{uuid.uuid4().hex[:6]}"
             segments.append(
@@ -198,28 +244,33 @@ def generate_captions_from_audio(
     mode: str = "karaoke",
     words_per_segment: int = 5
 ) -> TimelineCaptions:
-    """Generates word-level synchronized captions from voiceover audio."""
+    """Generates word-level synchronized captions from voiceover audio without placeholders."""
     raw_words = extract_word_timestamps_from_audio(audio_path)
 
-    # Fallback to VAD boundaries if Vosk word extraction returned no words
+    # If Vosk direct extraction produced no words, attempt transcription via sentence aligner
     if not raw_words:
-        vad_segments = detect_audio_sentences_vad(audio_path)
-        if vad_segments:
-            meta = get_media_metadata(audio_path)
-            total_dur = meta.get("duration", 10.0)
-            for idx, vad in enumerate(vad_segments):
-                seg_words = f"Sentence {idx+1}".split()
-                v_st = vad["start"]
-                v_et = vad["end"]
-                w_dur = (v_et - v_st) / max(1, len(seg_words))
-                for w_i, sw in enumerate(seg_words):
-                    raw_words.append({
-                        "id": f"word_vad_{idx}_{w_i}",
-                        "word": sw,
-                        "start": round(v_st + w_i * w_dur, 3),
-                        "end": round(v_st + (w_i + 1) * w_dur, 3),
-                        "conf": 0.85
-                    })
+        try:
+            from app.services.sentence_aligner import analyze_and_segment_audio
+            aligned_segments = analyze_and_segment_audio(audio_path, user_script=user_script)
+            if aligned_segments:
+                for seg in aligned_segments:
+                    for w in (seg.get("words") or []):
+                        raw_words.append({
+                            "id": f"word_{len(raw_words)+1:04d}_{uuid.uuid4().hex[:4]}",
+                            "word": w.get("word", "").strip(),
+                            "start": float(w.get("start", 0.0)),
+                            "end": float(w.get("end", 0.0)),
+                            "conf": float(w.get("confidence", 1.0)),
+                        })
+        except Exception as e:
+            print(f"[CaptionService] Fallback aligner warning: {e}")
+
+    # Never fabricate placeholder text: if no speech could be recognized, fail explicitly
+    if not raw_words:
+        raise ValueError(
+            "No spoken words detected in the audio file. "
+            "Please ensure your voiceover audio contains clear speech and retry."
+        )
 
     segments = group_words_into_segments(
         raw_words=raw_words,

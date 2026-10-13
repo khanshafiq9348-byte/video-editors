@@ -15,6 +15,25 @@ except Exception:
     except Exception:
         WHISPER_AVAILABLE = False
 
+_whisper_model_instance = None
+def get_whisper_model():
+    global _whisper_model_instance, WHISPER_AVAILABLE
+    if _whisper_model_instance is not None:
+        return _whisper_model_instance
+    if not WHISPER_AVAILABLE:
+        return None
+    try:
+        from faster_whisper import WhisperModel
+        _whisper_model_instance = WhisperModel("base", device="cpu", compute_type="int8")
+        return _whisper_model_instance
+    except Exception:
+        try:
+            import whisper
+            _whisper_model_instance = whisper.load_model("base")
+            return _whisper_model_instance
+        except Exception:
+            return None
+
 # Check if Vosk ASR is available
 VOSK_AVAILABLE = False
 _vosk_model_instance = None
@@ -25,14 +44,21 @@ def get_vosk_model():
         return _vosk_model_instance
     try:
         import vosk
-        # Check standard model directory
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        model_dir = os.path.join(base_dir, "vosk_models", "vosk-model-small-en-us-0.15")
-        if os.path.exists(model_dir):
-            vosk.SetLogLevel(-1)
-            _vosk_model_instance = vosk.Model(model_dir)
-            VOSK_AVAILABLE = True
-            return _vosk_model_instance
+        candidate_paths = [
+            os.path.join(base_dir, "vosk_models", "vosk-model-small-en-us-0.15"),
+            os.path.join(base_dir, "models", "vosk-model-small-en-us-0.15"),
+            os.path.join(os.path.dirname(base_dir), "vosk_models", "vosk-model-small-en-us-0.15"),
+            os.path.join(os.path.dirname(base_dir), "backend", "vosk_models", "vosk-model-small-en-us-0.15"),
+            os.path.abspath("backend/vosk_models/vosk-model-small-en-us-0.15"),
+            os.path.abspath("vosk_models/vosk-model-small-en-us-0.15"),
+        ]
+        for m_dir in candidate_paths:
+            if os.path.exists(m_dir):
+                vosk.SetLogLevel(-1)
+                _vosk_model_instance = vosk.Model(m_dir)
+                VOSK_AVAILABLE = True
+                return _vosk_model_instance
     except Exception as e:
         print(f"Vosk model initialization skipped: {e}")
     return None

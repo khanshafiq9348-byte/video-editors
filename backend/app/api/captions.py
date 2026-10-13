@@ -43,13 +43,32 @@ def generate_captions(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    audio_asset = db.query(Asset).filter(Asset.project_id == project_id, Asset.type == "audio").first()
-    if not audio_asset:
-        raise HTTPException(status_code=400, detail="No voiceover audio found in this project. Please upload audio first.")
+    settings_dict = {}
+    try:
+        settings_dict = json.loads(project.settings_json or "{}")
+    except Exception:
+        pass
 
-    audio_full_path = os.path.join(STORAGE_DIR, audio_asset.storage_path)
+    audio_asset = None
+    if settings_dict.get("active_audio_id"):
+        audio_asset = db.query(Asset).filter(Asset.id == settings_dict["active_audio_id"], Asset.project_id == project_id).first()
+
+    if not audio_asset:
+        audio_asset = db.query(Asset).filter(Asset.project_id == project_id, Asset.type == "audio").order_by(Asset.order_index.asc()).first()
+
+    if not audio_asset:
+        # Also support voiceover from uploaded video assets
+        audio_asset = db.query(Asset).filter(Asset.project_id == project_id, Asset.type == "video").order_by(Asset.order_index.asc()).first()
+
+    if not audio_asset:
+        raise HTTPException(status_code=400, detail="No voiceover audio or video found in this project. Please upload an audio or video file first.")
+
+    audio_full_path = os.path.normpath(os.path.join(STORAGE_DIR, audio_asset.storage_path))
     if not os.path.exists(audio_full_path):
-        raise HTTPException(status_code=404, detail="Audio file on disk missing.")
+        if os.path.isabs(audio_asset.storage_path) and os.path.exists(audio_asset.storage_path):
+            audio_full_path = audio_asset.storage_path
+        else:
+            raise HTTPException(status_code=404, detail=f"Audio file '{audio_asset.original_name}' not found on server storage.")
 
     timeline_record = db.query(Timeline).filter(Timeline.project_id == project_id).first()
     fps = 30
@@ -65,75 +84,41 @@ def generate_captions(
     mode = req.mode if req and req.mode else "karaoke"
     words_per_segment = req.words_per_segment if req and req.words_per_segment else 5
 
-    # Check if we already have transcribed sentences with word alignment for this project
-    existing_sentences = db.query(Sentence).filter(Sentence.project_id == project_id).order_by(Sentence.order_index).all()
-    cached_words = []
-    if existing_sentences:
-        for s in existing_sentences:
-            if s.words_json:
-                try:
-                    w_list = json.loads(s.words_json)
-                    if isinstance(w_list, list) and len(w_list) > 0:
-                        for w in w_list:
-                            cached_words.append({
-                                "id": f"word_{len(cached_words)+1:04d}",
-                                "word": w.get("word", "").strip(),
-                                "start": float(w.get("start", 0.0)),
-                                "end": float(w.get("end", 0.0)),
-                                "conf": float(w.get("conf", w.get("confidence", 1.0))),
-                            })
-                except Exception:
-                    pass
-
     try:
-        if cached_words:
-            segments = group_words_into_segments(
-                raw_words=cached_words,
-                fps=fps,
-                words_per_segment=words_per_segment,
-                user_script=project.script
-            )
-            from app.schemas.captions import CaptionStyle
-            preset = get_preset_by_id(preset_id)
-            preset_style = CaptionStyle(**preset["style"])
-            captions = TimelineCaptions(
-                settings=CaptionSettings(
-                    enabled=True,
-                    selectedPresetId=preset.get("id", "preset_yellow_karaoke"),
-                    mode=mode or preset.get("mode", "karaoke"),
-                    globalStyle=preset_style
-                ),
-                segments=segments
-            )
-        else:
-            captions = generate_captions_from_audio(
-                audio_path=audio_full_path,
-                fps=fps,
-                user_script=project.script,
-                preset_id=preset_id,
-                mode=mode,
-                words_per_segment=words_per_segment
-            )
-            # If no sentences existed in DB yet, auto-create Sentence records so timeline alignment is in sync
-            if not existing_sentences and captions.segments:
-                for s_i, seg in enumerate(captions.segments):
-                    w_payload = [
-                        {"word": cw.text, "start": cw.start_time, "end": cw.end_time, "conf": cw.confidence}
-                        for cw in (seg.words or [])
-                    ]
-                    sent_record = Sentence(
-                        id=f"sent_{s_i+1:03d}_{uuid.uuid4().hex[:6]}",
-                        project_id=project_id,
-                        order_index=s_i,
-                        text=seg.text,
-                        start_time=seg.start_time or 0.0,
-                        end_time=seg.end_time or 0.0,
-                        confidence=1.0,
-                        words_json=json.dumps(w_payload)
-                    )
-                    db.add(sent_record)
+        captions = generate_captions_from_audio(
+            audio_path=audio_full_path,
+            fps=fps,
+            user_script=project.script,
+            preset_id=preset_id,
+            mode=mode,
+            words_per_segment=words_per_segment
+        )
+
+        # Always keep Sentence records in database synchronized with generated caption segments
+        if captions.segments:
+            db.query(Sentence).filter(Sentence.project_id == project_id).delete()
+            for s_i, seg in enumerate(captions.segments):
+                w_payload = [
+                    {"word": cw.text, "start": cw.start_time, "end": cw.end_time, "conf": cw.confidence}
+                    for cw in (seg.words or [])
+                ]
+                sent_record = Sentence(
+                    id=f"sent_{s_i+1:03d}_{uuid.uuid4().hex[:6]}",
+                    project_id=project_id,
+                    order_index=s_i,
+                    text=seg.text,
+                    start_time=seg.start_time or 0.0,
+                    end_time=seg.end_time or 0.0,
+                    confidence=1.0,
+                    words_json=json.dumps(w_payload)
+                )
+                db.add(sent_record)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Caption generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Caption speech transcription failed: {str(e)}")
 
     # Save to timeline_json
     timeline_data["captions"] = captions.model_dump(by_alias=True)
