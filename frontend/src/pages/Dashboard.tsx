@@ -1,18 +1,12 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Plus,
   Film,
   Trash2,
   Check,
   Activity,
-  Upload,
-  FolderUp,
-  Image as ImageIcon,
-  Video as VideoIcon,
-  Music,
   X,
   Loader2,
-  AlertTriangle,
   Globe,
   Layers,
 } from 'lucide-react';
@@ -20,10 +14,7 @@ import { api } from '../services/api';
 import { ProjectDetail } from '../types/timeline';
 import { useExportStore } from '../stores/exportStore';
 import { ExportManagerDrawer } from '../components/export/ExportManagerDrawer';
-import {
-  extractFilesFromDataTransfer,
-  categorizeFile,
-} from '../utils/fileUploadHelper';
+
 
 interface AspectRatioOption {
   id: '16:9' | '9:16' | '1:1';
@@ -74,15 +65,7 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Staged files for project creation
-  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{ percent: number; current: number; total: number } | null>(null);
-  const [uploadWarning, setUploadWarning] = useState<string | null>(null);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -102,7 +85,6 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
     }
   };
 
-
   const { jobs, setDrawerOpen, startPolling } = useExportStore();
   const activeExportsCount = Object.values(jobs).filter(
     (j) => j.status === 'rendering' || j.status === 'queued' || j.status === 'pending'
@@ -116,56 +98,13 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
     };
   }, []);
 
-  const handleAddFiles = (incoming: File[]) => {
-    if (!incoming || incoming.length === 0) return;
-    setUploadWarning(null);
-
-    // Natural sort incoming files
-    const sorted = [...incoming].sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-    );
-
-    // Detect unsupported files
-    const unsupportedList: string[] = [];
-    const supportedList: File[] = [];
-
-    for (const f of sorted) {
-      const cat = categorizeFile(f.name);
-      if (cat === 'unsupported') {
-        unsupportedList.push(f.name);
-      } else {
-        supportedList.push(f);
-      }
-    }
-
-    if (unsupportedList.length > 0) {
-      setUploadWarning(
-        `Note: ${unsupportedList.length} unsupported file(s) ignored (${unsupportedList.slice(0, 3).join(', ')}${
-          unsupportedList.length > 3 ? '...' : ''
-        }). Supported formats: Images, Videos, Audio.`
-      );
-    }
-
-    setStagedFiles((prev) => {
-      const existingNames = new Set(prev.map((p) => p.name + p.size));
-      const fresh = supportedList.filter((f) => !existingNames.has(f.name + f.size));
-      return [...prev, ...fresh];
-    });
-  };
-
-  const handleRemoveStagedFile = (index: number) => {
-    setStagedFiles((prev) => prev.filter((_, i) => i !== index));
-  };
-
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProjectName.trim()) return;
     setIsSubmitting(true);
     setError(null);
-    setUploadWarning(null);
 
     try {
-      // 1. Create project
       const proj = await api.createProject(newProjectName.trim(), {
         aspect_ratio: selectedRatio.id,
         width: selectedRatio.width,
@@ -173,67 +112,20 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
         project_mode: projectMode,
       });
 
-      // 2. Upload staged files if any
-      if (stagedFiles.length > 0) {
-        setUploadProgress({ percent: 0, current: 0, total: stagedFiles.length });
-
-        const audioFiles: File[] = [];
-        const mediaFiles: File[] = [];
-        const audioExts = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma'];
-
-        for (const f of stagedFiles) {
-          const ext = f.name.slice(f.name.lastIndexOf('.')).toLowerCase();
-          if (audioExts.includes(ext)) {
-            audioFiles.push(f);
-          } else {
-            mediaFiles.push(f);
-          }
-        }
-
-        // Upload visual media
-        if (mediaFiles.length > 0) {
-          await api.uploadMedia(proj.id, mediaFiles, (pct, curr, tot) => {
-            setUploadProgress({ percent: pct, current: curr, total: tot + audioFiles.length });
-          });
-        }
-
-        // Upload audio
-        for (let i = 0; i < audioFiles.length; i++) {
-          const af = audioFiles[i];
-          await api.uploadAudio(proj.id, af, {
-            replace: projectMode === 'single_language' && i === 0,
-            language: projectMode === 'multi_language' ? `Track ${i + 1}` : undefined,
-          });
-        }
-
-        // If audio exists, auto analyze sentences
-        if (audioFiles.length > 0) {
-          try {
-            await api.analyzeAudio(proj.id);
-          } catch (e) {
-            console.log('Audio analysis notice:', e);
-          }
-        }
-
-        // If visuals exist, generate initial timeline
-        if (mediaFiles.length > 0) {
-          try {
-            await api.generateTimeline(proj.id);
-          } catch (e) {
-            console.log('Timeline generation notice:', e);
-          }
-        }
-      }
-
       setNewProjectName('');
-      setStagedFiles([]);
       setIsCreating(false);
       onOpenProject(proj.id);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to create project and upload assets');
+      const serverMessage = err.response?.data?.detail || err.message;
+      if (err.response?.status === 404 || err.code === 'ERR_NETWORK') {
+        setError('Unable to connect to the project server.');
+      } else if (serverMessage) {
+        setError(`Project creation failed: ${serverMessage}`);
+      } else {
+        setError('Project creation failed. Please try again.');
+      }
     } finally {
       setIsSubmitting(false);
-      setUploadProgress(null);
     }
   };
 
@@ -257,34 +149,6 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
     if (w === 1080 && h === 1920) return '9:16';
     if (w === h) return '1:1';
     return '16:9';
-  };
-
-  // Drag and drop for creation modal
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-
-    try {
-      const files = await extractFilesFromDataTransfer(e.dataTransfer);
-      if (files.length > 0) {
-        handleAddFiles(files);
-      }
-    } catch (err) {
-      setError('Failed to read dropped files');
-    }
   };
 
   return (
@@ -320,8 +184,7 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
           <button
             onClick={() => {
               setIsCreating(true);
-              setStagedFiles([]);
-              setUploadWarning(null);
+              setError(null);
             }}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-semibold text-white shadow-md transition-colors cursor-pointer"
           >
@@ -341,7 +204,7 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
           </div>
         )}
 
-        {/* Project Creation Form with Full Upload & Folder Support */}
+        {/* Project Creation Form with Clean Workflow */}
         {isCreating && (
           <form
             onSubmit={handleCreate}
@@ -350,7 +213,7 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
             <div className="flex items-center justify-between border-b border-[#2A2F3A] pb-3">
               <div>
                 <h2 className="text-base font-bold text-white">Create New Project</h2>
-                <span className="text-xs text-gray-400">Configure ratio, language mode, and import media</span>
+                <span className="text-xs text-gray-400">Configure canvas ratio and language mode</span>
               </div>
               <button
                 type="button"
@@ -478,162 +341,6 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
                 </div>
               </div>
             </div>
-
-            {/* Media Upload & Folder Upload Zone */}
-            <div className="space-y-3 pt-1 border-t border-[#2A2F3A]">
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-xs font-semibold text-gray-200">Import Media & Assets (Optional)</label>
-                  <p className="text-[11px] text-gray-400">
-                    Upload images, video clips, and voiceover audio now, or add them later in the editor.
-                  </p>
-                </div>
-                {stagedFiles.length > 0 && (
-                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-indigo-900/60 border border-indigo-700/50 text-indigo-300">
-                    {stagedFiles.length} file(s) staged · Naturally sorted
-                  </span>
-                )}
-              </div>
-
-              {/* Hidden file & folder inputs */}
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={(e) => {
-                  if (e.target.files) handleAddFiles(Array.from(e.target.files));
-                  if (fileInputRef.current) fileInputRef.current.value = '';
-                }}
-                multiple
-                accept="image/*,video/*,audio/*"
-                className="hidden"
-              />
-
-              <input
-                type="file"
-                ref={folderInputRef}
-                onChange={(e) => {
-                  if (e.target.files) handleAddFiles(Array.from(e.target.files));
-                  if (folderInputRef.current) folderInputRef.current.value = '';
-                }}
-                multiple
-                // @ts-ignore
-                webkitdirectory=""
-                directory=""
-                className="hidden"
-              />
-
-              {/* Dropzone with buttons */}
-              <div
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                className={`p-6 rounded-xl border-2 border-dashed transition-all text-center flex flex-col items-center justify-center gap-3 ${
-                  isDragging
-                    ? 'border-indigo-400 bg-indigo-950/30'
-                    : 'border-[#2e3343] bg-[#11131a] hover:border-gray-500'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#202533] hover:bg-[#2b3142] border border-[#373e52] rounded-lg text-xs font-semibold text-gray-200 transition-colors shadow-sm cursor-pointer"
-                  >
-                    <Upload size={14} className="text-indigo-400" /> Upload Files
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => folderInputRef.current?.click()}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#202533] hover:bg-[#2b3142] border border-[#373e52] rounded-lg text-xs font-semibold text-gray-200 transition-colors shadow-sm cursor-pointer"
-                  >
-                    <FolderUp size={14} className="text-amber-400" /> Select Folder
-                  </button>
-                </div>
-
-                <p className="text-xs text-gray-500">
-                  Or drag and drop files and complete folders directly into this box
-                </p>
-              </div>
-
-              {/* Warnings for unsupported files */}
-              {uploadWarning && (
-                <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-lg text-amber-300 text-xs flex items-center gap-2">
-                  <AlertTriangle size={15} className="shrink-0" />
-                  <span>{uploadWarning}</span>
-                </div>
-              )}
-
-              {/* Staged Files Preview Grid */}
-              {stagedFiles.length > 0 && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs text-gray-400 font-medium">
-                    <span>Staged Files Preview ({stagedFiles.length})</span>
-                    <button
-                      type="button"
-                      onClick={() => setStagedFiles([])}
-                      className="text-red-400 hover:text-red-300 text-[11px]"
-                    >
-                      Clear all
-                    </button>
-                  </div>
-                  <div className="max-h-48 overflow-y-auto space-y-1.5 p-2 bg-[#11131a] rounded-lg border border-[#2e3343]">
-                    {stagedFiles.map((file, idx) => {
-                      const category = categorizeFile(file.name);
-                      return (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between px-2.5 py-1.5 bg-[#181b24] rounded border border-[#2a2f3a] text-xs"
-                        >
-                          <div className="flex items-center gap-2 truncate pr-2">
-                            {category === 'video' ? (
-                              <VideoIcon size={14} className="text-amber-400 shrink-0" />
-                            ) : category === 'audio' ? (
-                              <Music size={14} className="text-emerald-400 shrink-0" />
-                            ) : (
-                              <ImageIcon size={14} className="text-indigo-400 shrink-0" />
-                            )}
-                            <span className="text-gray-200 truncate font-mono text-[11px]">
-                              {file.name}
-                            </span>
-                            <span className="text-[10px] text-gray-500">
-                              {(file.size / 1024).toFixed(0)} KB
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveStagedFile(idx)}
-                            className="text-gray-500 hover:text-red-400 p-0.5"
-                          >
-                            <X size={13} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Upload Progress Bar */}
-            {isSubmitting && uploadProgress && (
-              <div className="p-3 bg-[#11131a] rounded-lg border border-[#2e3343] space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="flex items-center gap-1.5 text-indigo-400 font-medium">
-                    <Loader2 size={14} className="animate-spin" /> Uploading assets & generating timeline...
-                  </span>
-                  <span className="text-gray-400 font-mono text-[11px]">
-                    {uploadProgress.percent}% ({uploadProgress.current}/{uploadProgress.total})
-                  </span>
-                </div>
-                <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
-                  <div
-                    className="bg-indigo-500 h-full transition-all duration-300"
-                    style={{ width: `${Math.max(5, uploadProgress.percent)}%` }}
-                  />
-                </div>
-              </div>
-            )}
 
             {/* Action Buttons */}
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#2A2F3A]">
