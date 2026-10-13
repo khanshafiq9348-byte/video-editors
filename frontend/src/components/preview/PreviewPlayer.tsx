@@ -20,8 +20,10 @@ export const PreviewPlayer: React.FC = () => {
 
   // Memoize scene mapping so reference stays identical unless timeline or project changes
   const scenesWithUrls = useMemo(() => {
-    return (timeline?.scenes || []).map((scene) => {
-      const asset = currentProject?.assets.find((a) => a.id === scene.imageAssetId);
+    const scenesList = Array.isArray(timeline?.scenes) ? timeline.scenes : [];
+    const assetsList = Array.isArray(currentProject?.assets) ? currentProject.assets : [];
+    return scenesList.map((scene) => {
+      const asset = assetsList.find((a) => a.id === scene.imageAssetId);
       return {
         ...scene,
         imageUrl: asset ? asset.url : '',
@@ -30,7 +32,8 @@ export const PreviewPlayer: React.FC = () => {
   }, [timeline?.scenes, currentProject?.assets]);
 
   const audioAsset = useMemo(() => {
-    return currentProject?.assets.find((a) => a.type === 'audio');
+    const assetsList = Array.isArray(currentProject?.assets) ? currentProject.assets : [];
+    return assetsList.find((a) => a.type === 'audio');
   }, [currentProject?.assets]);
   
   const audioUrl = audioAsset ? audioAsset.url : undefined;

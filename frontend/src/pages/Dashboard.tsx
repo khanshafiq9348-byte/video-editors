@@ -88,13 +88,20 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
     setLoading(true);
     try {
       const data = await api.getProjects();
-      setProjects(data);
+      if (Array.isArray(data)) {
+        setProjects(data);
+      } else {
+        console.warn('api.getProjects returned non-array payload:', data);
+        setProjects([]);
+      }
     } catch (e: any) {
+      setProjects([]);
       setError('Could not connect to AutoVideo Studio API. Make sure the backend server is running.');
     } finally {
       setLoading(false);
     }
   };
+
 
   const { jobs, setDrawerOpen, startPolling } = useExportStore();
   const activeExportsCount = Object.values(jobs).filter(
@@ -660,14 +667,14 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
         {/* Existing Projects Header & List */}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">Your Projects</h2>
-          <span className="text-xs text-gray-500">{projects.length} Projects</span>
+          <span className="text-xs text-gray-500">{Array.isArray(projects) ? projects.length : 0} Projects</span>
         </div>
 
         {loading ? (
           <div className="text-center py-20 text-gray-500 text-sm flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-indigo-400" /> Loading projects...
           </div>
-        ) : projects.length === 0 ? (
+        ) : !Array.isArray(projects) || projects.length === 0 ? (
           <div className="text-center py-24 bg-[#181B24]/40 border border-dashed border-[#2A2F3A] rounded-2xl p-8">
             <Film size={36} className="mx-auto text-gray-600 mb-3" />
             <div className="text-sm font-medium text-gray-300 mb-1">No Projects Yet</div>
@@ -683,10 +690,11 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {projects.map((proj) => {
-              const visualCount = proj.assets.filter((a) => a.type === 'image' || a.type === 'video').length;
-              const hasAudio = proj.assets.some((a) => a.type === 'audio');
-              const sceneCount = proj.timeline?.scenes.length || 0;
+            {(Array.isArray(projects) ? projects : []).map((proj) => {
+              const assetsList = Array.isArray(proj?.assets) ? proj.assets : [];
+              const visualCount = assetsList.filter((a) => a.type === 'image' || a.type === 'video').length;
+              const hasAudio = assetsList.some((a) => a.type === 'audio');
+              const sceneCount = Array.isArray(proj.timeline?.scenes) ? proj.timeline.scenes.length : 0;
               const ratioBadge = getAspectRatioBadge(proj);
               const isMulti = proj.settings?.project_mode === 'multi_language';
 

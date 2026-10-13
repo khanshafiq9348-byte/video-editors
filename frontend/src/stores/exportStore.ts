@@ -30,15 +30,14 @@ export const useExportStore = create<ExportStoreState>((set, get) => ({
       const jobsMap: Record<string, RenderJob> = {};
       const projMap: Record<string, RenderJob> = {};
 
-      for (const job of allJobs) {
-        jobsMap[job.id] = job;
-        // Keep latest job per project (allJobs is sorted created_at desc)
-        if (!projMap[job.project_id]) {
-          projMap[job.project_id] = job;
+      if (Array.isArray(allJobs)) {
+        for (const job of allJobs) {
+          jobsMap[job.id] = job;
+          // Keep latest job per project (allJobs is sorted created_at desc)
+          if (!projMap[job.project_id]) {
+            projMap[job.project_id] = job;
+          }
         }
-
-        // Track completed jobs without auto-downloading
-        // Users can download anytime via explicit Download button
       }
 
       set({ jobs: jobsMap, projectLatestJobs: projMap });

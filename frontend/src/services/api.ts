@@ -23,7 +23,7 @@ export const api = {
   // Projects
   getProjects: async (): Promise<ProjectDetail[]> => {
     const res = await client.get('/projects');
-    return res.data;
+    return Array.isArray(res.data) ? res.data : [];
   },
 
   createProject: async (name: string, settings?: Partial<ProjectSettings>): Promise<ProjectDetail> => {
@@ -176,13 +176,13 @@ export const api = {
 
   getAllRenderJobs: async (): Promise<RenderJob[]> => {
     const res = await client.get('/render-jobs');
-    return res.data;
+    return Array.isArray(res.data) ? res.data : [];
   },
 
   getLatestRenderJob: async (projectId: string): Promise<RenderJob | null> => {
     try {
       const res = await client.get(`/projects/${projectId}/latest-render-job`);
-      return res.data;
+      return res.data && typeof res.data === 'object' ? res.data : null;
     } catch (err: any) {
       if (err.response?.status === 404) return null;
       throw err;
@@ -191,7 +191,7 @@ export const api = {
 
   getProjectRenderJobs: async (projectId: string): Promise<RenderJob[]> => {
     const res = await client.get(`/projects/${projectId}/render-jobs`);
-    return res.data;
+    return Array.isArray(res.data) ? res.data : [];
   },
 
   cancelRenderJob: async (jobId: string): Promise<void> => {

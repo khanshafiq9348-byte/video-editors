@@ -268,8 +268,8 @@ export const TimelineTrack: React.FC = () => {
 
           {/* Track 1: Visual Image Clips */}
           <div className="h-16 relative bg-[#141722]/60 my-1 border-y border-[#1e2333]">
-            {timeline.scenes.map((scene) => {
-              const asset = currentProject?.assets.find((a) => a.id === scene.imageAssetId);
+            {(Array.isArray(timeline.scenes) ? timeline.scenes : []).map((scene) => {
+              const asset = Array.isArray(currentProject?.assets) ? currentProject.assets.find((a) => a.id === scene.imageAssetId) : undefined;
               const isSelected = scene.id === selectedSceneId;
               const left = scene.startFrame * pixelsPerFrame;
               const width = Math.max(20, scene.durationFrames * pixelsPerFrame);

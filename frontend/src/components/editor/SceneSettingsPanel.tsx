@@ -17,9 +17,11 @@ export const SceneSettingsPanel: React.FC = () => {
   const scene = timeline.scenes.find((s) => s.id === selectedSceneId);
   if (!scene) return null;
 
-  const currentImage = currentProject?.assets.find((a) => a.id === scene.imageAssetId);
-  const availableImages = currentProject?.assets.filter((a) => a.type === 'image') || [];
-  const associatedSentence = currentProject?.sentences.find((s) => s.id === scene.sentenceId);
+  const assetsList = Array.isArray(currentProject?.assets) ? currentProject.assets : [];
+  const sentencesList = Array.isArray(currentProject?.sentences) ? currentProject.sentences : [];
+  const currentImage = assetsList.find((a) => a.id === scene.imageAssetId);
+  const availableImages = assetsList.filter((a) => a.type === 'image');
+  const associatedSentence = sentencesList.find((s) => s.id === scene.sentenceId);
 
   const effectOptions = [
     { value: 'zoom_in', label: 'Zoom In' },

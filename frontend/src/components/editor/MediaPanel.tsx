@@ -49,8 +49,9 @@ export const MediaPanel: React.FC = () => {
   if (!currentProject) return null;
 
   const isMultiLanguage = currentProject.settings?.project_mode === 'multi_language';
-  const visualAssets = currentProject.assets.filter((a) => a.type === 'image' || a.type === 'video');
-  const audioAssets = currentProject.assets.filter((a) => a.type === 'audio');
+  const assetsList = Array.isArray(currentProject.assets) ? currentProject.assets : [];
+  const visualAssets = assetsList.filter((a) => a.type === 'image' || a.type === 'video');
+  const audioAssets = assetsList.filter((a) => a.type === 'audio');
   const activeAudioId = currentProject.settings?.active_audio_id || audioAssets[0]?.id;
 
   const handleProcessFiles = async (files: File[]) => {
