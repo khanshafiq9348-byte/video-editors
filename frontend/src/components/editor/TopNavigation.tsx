@@ -182,9 +182,9 @@ export const TopNavigation: React.FC<{ onBackToProjects: () => void }> = ({ onBa
 
   return (
     <>
-      <header className="h-14 bg-[#181B24] border-b border-[#2A2F3A] px-4 flex items-center justify-between select-none z-20">
+      <header className="h-14 bg-[#181B24] border-b border-[#2A2F3A] px-4 flex items-center justify-between select-none z-20 gap-2">
         {/* Left: Logo & Project Name */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 shrink-0">
           <button
             onClick={onBackToProjects}
             className="flex items-center gap-2 hover:opacity-80 transition-opacity"
@@ -213,11 +213,11 @@ export const TopNavigation: React.FC<{ onBackToProjects: () => void }> = ({ onBa
         </div>
 
         {/* Center: Automation Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-shrink overflow-x-auto py-1">
           <button
             onClick={analyzeVoiceover}
             disabled={isLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#232733] hover:bg-[#2d3242] border border-[#373e50] rounded-md text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors shadow-sm disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#232733] hover:bg-[#2d3242] border border-[#373e50] rounded-md text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors shadow-sm disabled:opacity-50 shrink-0"
           >
             <Sparkles size={14} />
             Analyze Voiceover
@@ -226,7 +226,7 @@ export const TopNavigation: React.FC<{ onBackToProjects: () => void }> = ({ onBa
           <button
             onClick={autoGenerateTimeline}
             disabled={isLoading}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-md text-xs font-semibold text-white transition-colors shadow-md disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-md text-xs font-semibold text-white transition-colors shadow-md disabled:opacity-50 shrink-0"
           >
             <Wand2 size={14} />
             Auto Generate Video
@@ -236,7 +236,7 @@ export const TopNavigation: React.FC<{ onBackToProjects: () => void }> = ({ onBa
           <select
             value={currentProject.settings?.preset || 'documentary'}
             onChange={handlePresetChange}
-            className="bg-[#232733] border border-[#373e50] rounded-md px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none"
+            className="bg-[#232733] border border-[#373e50] rounded-md px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none shrink-0"
             title="Video Preset"
           >
             <option value="documentary">Preset: Documentary</option>
@@ -249,7 +249,7 @@ export const TopNavigation: React.FC<{ onBackToProjects: () => void }> = ({ onBa
           <select
             value={currentProject.settings?.transition_style || 'crossfade'}
             onChange={handleTransitionStyleChange}
-            className="bg-[#232733] border border-[#373e50] rounded-md px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none"
+            className="bg-[#232733] border border-[#373e50] rounded-md px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none shrink-0"
             title="Transition Style"
           >
             <option value="crossfade">Transition: Smooth Crossfade (Default)</option>
@@ -266,7 +266,7 @@ export const TopNavigation: React.FC<{ onBackToProjects: () => void }> = ({ onBa
           <select
             value={currentProject.settings?.effect_style || 'automatic'}
             onChange={handleEffectStyleChange}
-            className="bg-[#232733] border border-[#373e50] rounded-md px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none"
+            className="bg-[#232733] border border-[#373e50] rounded-md px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none shrink-0"
             title="Motion / Animation Effect Style"
           >
             <option value="automatic">Motion: Varied Ken Burns (Subtle)</option>
@@ -280,7 +280,7 @@ export const TopNavigation: React.FC<{ onBackToProjects: () => void }> = ({ onBa
         </div>
 
         {/* Right: History, Save & Export */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0 z-10 ml-auto">
           <button
             onClick={undo}
             disabled={historyIndex <= 0}
@@ -340,17 +340,17 @@ export const TopNavigation: React.FC<{ onBackToProjects: () => void }> = ({ onBa
               </a>
               <button
                 onClick={() => setShowExportModal(true)}
-                className="px-2.5 py-1.5 bg-[#232733] hover:bg-[#2d3242] border border-[#373e50] rounded-md text-xs font-medium text-gray-300 transition-colors"
-                title="Re-export with different resolution"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 rounded-md text-xs font-semibold text-white transition-all shadow-md cursor-pointer"
+                title="Export or re-export video with custom settings"
               >
-                Re-export
+                <Download size={14} /> Export Video
               </button>
             </div>
           ) : (
             <button
               onClick={() => setShowExportModal(true)}
               disabled={isLoading || activeRenderJob?.status === 'rendering' || activeRenderJob?.status === 'queued'}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 rounded-md text-xs font-semibold text-white transition-all shadow-md disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 rounded-md text-xs font-semibold text-white transition-all shadow-md disabled:opacity-50 cursor-pointer"
             >
               {activeRenderJob?.status === 'rendering' ? (
                 <>
