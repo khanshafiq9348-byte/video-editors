@@ -21,7 +21,7 @@ except Exception as _e:
 app = FastAPI(
     title="AutoVideo Studio API",
     description="Backend API for AI Automated Video Editor",
-    version="1.0.0"
+    version="1.0.1"
 )
 
 # Enable CORS for frontend development

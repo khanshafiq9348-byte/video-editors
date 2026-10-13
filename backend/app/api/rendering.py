@@ -149,13 +149,48 @@ def auto_generate_timeline(project_id: str, db: Session = Depends(get_db)):
         audio_full_path = os.path.join(STORAGE_DIR, audio_asset.storage_path)
         if os.path.exists(audio_full_path):
             try:
-                from app.services.caption_service import generate_captions_from_audio
                 fps = settings.fps or 30
-                timeline_data.captions = generate_captions_from_audio(
-                    audio_path=audio_full_path,
-                    fps=fps,
-                    user_script=project.script
-                )
+                cached_words = []
+                for s in sentences:
+                    if getattr(s, "words_json", None):
+                        try:
+                            w_list = json.loads(s.words_json)
+                            if isinstance(w_list, list):
+                                for w in w_list:
+                                    cached_words.append({
+                                        "id": f"word_{len(cached_words)+1:04d}",
+                                        "word": w.get("word", "").strip(),
+                                        "start": float(w.get("start", 0.0)),
+                                        "end": float(w.get("end", 0.0)),
+                                        "conf": float(w.get("conf", w.get("confidence", 1.0))),
+                                    })
+                        except Exception:
+                            pass
+
+                if cached_words:
+                    from app.services.caption_service import group_words_into_segments
+                    from app.services.caption_presets import get_preset_by_id
+                    from app.schemas.captions import CaptionSettings, TimelineCaptions
+                    segments = group_words_into_segments(raw_words=cached_words, fps=fps, user_script=project.script)
+                    preset = get_preset_by_id("preset_yellow_karaoke")
+                    from app.schemas.captions import CaptionStyle
+                    preset_style = CaptionStyle(**preset["style"])
+                    timeline_data.captions = TimelineCaptions(
+                        settings=CaptionSettings(
+                            enabled=True,
+                            selectedPresetId=preset.get("id", "preset_yellow_karaoke"),
+                            mode=preset.get("mode", "karaoke"),
+                            globalStyle=preset_style
+                        ),
+                        segments=segments
+                    )
+                else:
+                    from app.services.caption_service import generate_captions_from_audio
+                    timeline_data.captions = generate_captions_from_audio(
+                        audio_path=audio_full_path,
+                        fps=fps,
+                        user_script=project.script
+                    )
             except Exception as e:
                 print(f"[TimelineGeneration] Auto-generate captions notice: {e}")
 

@@ -1,18 +1,22 @@
 import os
 import json
+import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db, STORAGE_DIR
-from app.models import Project, Asset, Timeline
+from app.models import Project, Asset, Timeline, Sentence
 from app.schemas.captions import (
+    CaptionSettings,
     TimelineCaptions,
     CaptionGenerateRequest,
 )
+from app.services.caption_presets import get_preset_by_id
 from app.services.caption_service import (
     generate_captions_from_audio,
+    group_words_into_segments,
     export_captions_to_srt,
     export_captions_to_vtt,
 )
@@ -61,15 +65,73 @@ def generate_captions(
     mode = req.mode if req and req.mode else "karaoke"
     words_per_segment = req.words_per_segment if req and req.words_per_segment else 5
 
+    # Check if we already have transcribed sentences with word alignment for this project
+    existing_sentences = db.query(Sentence).filter(Sentence.project_id == project_id).order_by(Sentence.order_index).all()
+    cached_words = []
+    if existing_sentences:
+        for s in existing_sentences:
+            if s.words_json:
+                try:
+                    w_list = json.loads(s.words_json)
+                    if isinstance(w_list, list) and len(w_list) > 0:
+                        for w in w_list:
+                            cached_words.append({
+                                "id": f"word_{len(cached_words)+1:04d}",
+                                "word": w.get("word", "").strip(),
+                                "start": float(w.get("start", 0.0)),
+                                "end": float(w.get("end", 0.0)),
+                                "conf": float(w.get("conf", w.get("confidence", 1.0))),
+                            })
+                except Exception:
+                    pass
+
     try:
-        captions = generate_captions_from_audio(
-            audio_path=audio_full_path,
-            fps=fps,
-            user_script=project.script,
-            preset_id=preset_id,
-            mode=mode,
-            words_per_segment=words_per_segment
-        )
+        if cached_words:
+            segments = group_words_into_segments(
+                raw_words=cached_words,
+                fps=fps,
+                words_per_segment=words_per_segment,
+                user_script=project.script
+            )
+            from app.schemas.captions import CaptionStyle
+            preset = get_preset_by_id(preset_id)
+            preset_style = CaptionStyle(**preset["style"])
+            captions = TimelineCaptions(
+                settings=CaptionSettings(
+                    enabled=True,
+                    selectedPresetId=preset.get("id", "preset_yellow_karaoke"),
+                    mode=mode or preset.get("mode", "karaoke"),
+                    globalStyle=preset_style
+                ),
+                segments=segments
+            )
+        else:
+            captions = generate_captions_from_audio(
+                audio_path=audio_full_path,
+                fps=fps,
+                user_script=project.script,
+                preset_id=preset_id,
+                mode=mode,
+                words_per_segment=words_per_segment
+            )
+            # If no sentences existed in DB yet, auto-create Sentence records so timeline alignment is in sync
+            if not existing_sentences and captions.segments:
+                for s_i, seg in enumerate(captions.segments):
+                    w_payload = [
+                        {"word": cw.text, "start": cw.start_time, "end": cw.end_time, "conf": cw.confidence}
+                        for cw in (seg.words or [])
+                    ]
+                    sent_record = Sentence(
+                        id=f"sent_{s_i+1:03d}_{uuid.uuid4().hex[:6]}",
+                        project_id=project_id,
+                        order_index=s_i,
+                        text=seg.text,
+                        start_time=seg.start_time or 0.0,
+                        end_time=seg.end_time or 0.0,
+                        confidence=1.0,
+                        words_json=json.dumps(w_payload)
+                    )
+                    db.add(sent_record)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Caption generation failed: {str(e)}")
 

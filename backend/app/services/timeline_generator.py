@@ -338,6 +338,7 @@ def generate_timeline(
                     img_id = image_ids[i % num_images]
                     start_sec = get_sent_start(sent)
                     end_sec = get_sent_end(sent)
+                    speech_end_frame = int(round(end_sec * fps))
 
                     # 1. Start frame: First scene starts at 00:00 (frame 0)
                     if i == 0:
@@ -382,6 +383,7 @@ def generate_timeline(
                         sentenceId=sent.get("id"),
                         startFrame=scene_start,
                         endFrame=scene_end,
+                        speechEndFrame=speech_end_frame,
                         durationFrames=scene_duration,
                         effect=eff,
                         transitionOut=trans,
@@ -457,6 +459,7 @@ def generate_timeline(
                         sentenceId=spec["sentence_id"],
                         startFrame=scene_start,
                         endFrame=scene_end,
+                        speechEndFrame=int(round(spec["end_sec"] * fps)),
                         durationFrames=scene_duration,
                         effect=eff,
                         transitionOut=trans,
@@ -501,6 +504,7 @@ def generate_timeline(
                 sentenceId=None,
                 startFrame=scene_start,
                 endFrame=scene_start + scene_duration,
+                speechEndFrame=scene_start + scene_duration,
                 durationFrames=scene_duration,
                 effect=eff,
                 transitionOut=trans,
@@ -541,6 +545,7 @@ def generate_timeline(
                 sentenceId=None,
                 startFrame=scene_start,
                 endFrame=scene_start + scene_duration,
+                speechEndFrame=scene_start + scene_duration,
                 durationFrames=scene_duration,
                 effect=eff,
                 transitionOut=trans,

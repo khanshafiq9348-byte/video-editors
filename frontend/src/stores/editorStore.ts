@@ -334,7 +334,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   generateCaptions: async (options?: { presetId?: string; mode?: string; wordsPerSegment?: number }) => {
-    const { currentProject, timeline, setTimeline } = get();
+    const { currentProject, timeline, setTimeline, loadProject } = get();
     if (!currentProject) return;
     try {
       set({ isLoading: true, statusMessage: 'Analyzing voiceover & generating captions...' });
@@ -342,12 +342,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (timeline) {
         const updatedTl = { ...timeline, captions: caps };
         setTimeline(updatedTl, true);
+      } else {
+        const audioAsset = currentProject.assets.find((a) => a.type === 'audio');
+        const fps = currentProject.settings?.fps || 30;
+        const totalDurationSec = audioAsset?.duration || 10;
+        const initTl: TimelineData = {
+          projectId: currentProject.id,
+          settings: currentProject.settings,
+          audio: audioAsset ? { assetId: audioAsset.id, startFrame: 0, durationFrames: Math.round(totalDurationSec * fps) } : null,
+          scenes: [],
+          totalDurationFrames: Math.round(totalDurationSec * fps),
+          captions: caps,
+        };
+        setTimeline(initTl, true);
       }
+      await loadProject(currentProject.id);
       set({ isLoading: false, statusMessage: 'Captions generated successfully!' });
     } catch (err: any) {
       set({
         isLoading: false,
-        errorMessage: err.response?.data?.detail || 'Failed to generate captions. Please ensure voiceover is uploaded.',
+        errorMessage: err.response?.data?.detail || err.message || 'Failed to generate captions. Please ensure voiceover is uploaded.',
       });
     }
   },

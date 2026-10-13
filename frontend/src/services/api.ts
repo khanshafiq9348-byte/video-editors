@@ -684,6 +684,7 @@ export const api = {
         startFrame: sceneStart,
         durationFrames: sceneDur,
         endFrame: sceneEnd,
+        speechEndFrame: Math.round(raw.endSec * fps),
         effect: {
           type: effType,
           intensity: 0.15,
@@ -860,8 +861,11 @@ export const api = {
       if (res.data && res.data.segments && !isInvalidOrHtml(res.data)) {
         return res.data;
       }
-    } catch (e) {
-      // Backend unavailable
+    } catch (e: any) {
+      if (e?.response?.status === 400 || e?.response?.status === 404) {
+        throw e;
+      }
+      // If network unreachable or other error in offline dev, fall back to local project
     }
 
     const localProj = getLocalProject(projectId);

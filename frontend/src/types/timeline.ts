@@ -63,6 +63,7 @@ export interface SceneItem {
   startFrame: number;
   durationFrames: number;
   endFrame?: number;
+  speechEndFrame?: number;
   effect: SceneEffect;
   transitionOut?: SceneTransition | null;
   fitMode?: 'fill' | 'fit' | 'blur_background';
