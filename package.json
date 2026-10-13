@@ -1,0 +1,11 @@
+{
+  "name": "autovideo-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AutoVideo Studio - AI-Powered Automated Video Editor",
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build",
+    "dev": "cd frontend && npm run dev",
+    "preview": "cd frontend && npm run preview"
+  }
+}

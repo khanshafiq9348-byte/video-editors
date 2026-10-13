@@ -1,8 +1,16 @@
 import axios from 'axios';
 import { ProjectDetail, ProjectSettings, Asset, SentenceItem, TimelineData, RenderJob } from '../types/timeline';
 
+const getBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL;
+  if (envUrl) {
+    return envUrl.endsWith('/api') ? envUrl : `${envUrl.replace(/\/$/, '')}/api`;
+  }
+  return '/api';
+};
+
 const client = axios.create({
-  baseURL: '/api',
+  baseURL: getBaseUrl(),
 });
 
 export const api = {
