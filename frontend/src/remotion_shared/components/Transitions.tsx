@@ -9,6 +9,61 @@ export interface TransitionOverlayProps {
   nextScene?: any;
 }
 
+/** Helper to render the next scene image with matching color tone, fit mode, and start position */
+function renderNextSceneImage(nextImageUrl: string, nextScene?: any) {
+  const nextStartScale = nextScene?.effect?.startScale ?? 1.0;
+  const nextStartX = nextScene?.effect?.startX ?? 0;
+  const nextStartY = nextScene?.effect?.startY ?? 0;
+  const fitMode = nextScene?.fitMode ?? 'fill';
+  const colorTone = nextScene?.colorTone ?? 'original';
+
+  let filterStyle = 'none';
+  if (colorTone === 'warm') filterStyle = 'sepia(0.18) saturate(1.15)';
+  else if (colorTone === 'cool') filterStyle = 'hue-rotate(185deg) saturate(1.05)';
+  else if (colorTone === 'cinematic') filterStyle = 'contrast(1.1) saturate(1.1)';
+
+  return (
+    <>
+      {fitMode === 'blur_background' && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: -20,
+            overflow: 'hidden',
+            pointerEvents: 'none',
+          }}
+        >
+          <img
+            src={nextImageUrl}
+            alt=""
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              filter: `blur(24px) brightness(0.65) ${filterStyle !== 'none' ? filterStyle : ''}`,
+              transform: 'scale(1.2)',
+            }}
+          />
+        </div>
+      )}
+      <img
+        src={nextImageUrl}
+        alt="transition target"
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: fitMode === 'fit' ? 'contain' : (fitMode === 'blur_background' ? 'contain' : 'cover'),
+          transform: `translate(${nextStartX}px, ${nextStartY}px) scale(${nextStartScale})`,
+          transformOrigin: 'center center',
+          filter: filterStyle !== 'none' ? filterStyle : undefined,
+          display: 'block',
+          position: 'relative',
+        }}
+      />
+    </>
+  );
+}
+
 export const TransitionOverlay: React.FC<TransitionOverlayProps> = ({
   type,
   durationFrames,
@@ -40,20 +95,9 @@ export const TransitionOverlay: React.FC<TransitionOverlayProps> = ({
     }
   );
 
-  // Clean, professional crossfade dissolve to next visual matching its start scale & position
+  // Clean, professional crossfade dissolve
   if (type === 'crossfade' || type === 'automatic' || type === 'auto') {
     if (nextImageUrl) {
-      const nextStartScale = nextScene?.effect?.startScale ?? 1.0;
-      const nextStartX = nextScene?.effect?.startX ?? 0;
-      const nextStartY = nextScene?.effect?.startY ?? 0;
-      const fitMode = nextScene?.fitMode ?? 'fill';
-      const colorTone = nextScene?.colorTone ?? 'original';
-
-      let filterStyle = 'none';
-      if (colorTone === 'warm') filterStyle = 'sepia(0.18) saturate(1.15)';
-      else if (colorTone === 'cool') filterStyle = 'hue-rotate(185deg) saturate(1.05)';
-      else if (colorTone === 'cinematic') filterStyle = 'contrast(1.1) saturate(1.1)';
-
       return (
         <div
           style={{
@@ -68,42 +112,7 @@ export const TransitionOverlay: React.FC<TransitionOverlayProps> = ({
             justifyContent: 'center',
           }}
         >
-          {fitMode === 'blur_background' && (
-            <div
-              style={{
-                position: 'absolute',
-                inset: -20,
-                overflow: 'hidden',
-                pointerEvents: 'none',
-              }}
-            >
-              <img
-                src={nextImageUrl}
-                alt=""
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  filter: `blur(24px) brightness(0.65) ${filterStyle !== 'none' ? filterStyle : ''}`,
-                  transform: 'scale(1.2)',
-                }}
-              />
-            </div>
-          )}
-          <img
-            src={nextImageUrl}
-            alt="transition target"
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: fitMode === 'fit' ? 'contain' : (fitMode === 'blur_background' ? 'contain' : 'cover'),
-              transform: `translate(${nextStartX}px, ${nextStartY}px) scale(${nextStartScale})`,
-              transformOrigin: 'center center',
-              filter: filterStyle !== 'none' ? filterStyle : undefined,
-              display: 'block',
-              position: 'relative',
-            }}
-          />
+          {renderNextSceneImage(nextImageUrl, nextScene)}
         </div>
       );
     }
@@ -120,7 +129,7 @@ export const TransitionOverlay: React.FC<TransitionOverlayProps> = ({
     );
   }
 
-  // Smooth Fade to Black (Dip to Black)
+  // Smooth Dip to Black
   if (type === 'fade') {
     return (
       <div
@@ -145,14 +154,14 @@ export const TransitionOverlay: React.FC<TransitionOverlayProps> = ({
           transform: `translateX(${(1 - progress) * 100}%)`,
           pointerEvents: 'none',
           overflow: 'hidden',
+          backgroundColor: '#000',
           boxShadow: '-8px 0 24px rgba(0,0,0,0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
-        <img
-          src={nextImageUrl}
-          alt=""
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        />
+        {renderNextSceneImage(nextImageUrl, nextScene)}
       </div>
     );
   }
@@ -167,14 +176,14 @@ export const TransitionOverlay: React.FC<TransitionOverlayProps> = ({
           transform: `translateX(${-(1 - progress) * 100}%)`,
           pointerEvents: 'none',
           overflow: 'hidden',
+          backgroundColor: '#000',
           boxShadow: '8px 0 24px rgba(0,0,0,0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
-        <img
-          src={nextImageUrl}
-          alt=""
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        />
+        {renderNextSceneImage(nextImageUrl, nextScene)}
       </div>
     );
   }
@@ -187,16 +196,16 @@ export const TransitionOverlay: React.FC<TransitionOverlayProps> = ({
           position: 'absolute',
           inset: 0,
           opacity: progress,
-          transform: `scale(${0.9 + 0.1 * progress})`,
+          transform: `scale(${0.92 + 0.08 * progress})`,
           pointerEvents: 'none',
           overflow: 'hidden',
+          backgroundColor: '#000',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
-        <img
-          src={nextImageUrl}
-          alt=""
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        />
+        {renderNextSceneImage(nextImageUrl, nextScene)}
       </div>
     );
   }

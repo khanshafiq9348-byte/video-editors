@@ -41,8 +41,8 @@ export const useExportStore = create<ExportStoreState>((set, get) => ({
       }
 
       set({ jobs: jobsMap, projectLatestJobs: projMap });
-    } catch (err) {
-      console.warn('Failed to refresh export jobs', err);
+    } catch (err: any) {
+      // Quietly ignore network failures during background refresh without spamming console
     }
   },
 
@@ -63,9 +63,16 @@ export const useExportStore = create<ExportStoreState>((set, get) => ({
       clearInterval(pollingInterval);
     }
 
+    // Adaptive polling: check every 3s if drawer is open or if active jobs exist; otherwise poll gently every 10s
     pollingInterval = setInterval(async () => {
-      await get().refreshAllJobs();
-    }, 2000);
+      const { isDrawerOpen, jobs } = get();
+      const hasActive = Object.values(jobs).some(
+        (j) => j.status === 'rendering' || j.status === 'queued' || j.status === 'pending'
+      );
+      if (isDrawerOpen || hasActive) {
+        await get().refreshAllJobs();
+      }
+    }, 3000);
 
     return () => {
       if (pollingInterval) {

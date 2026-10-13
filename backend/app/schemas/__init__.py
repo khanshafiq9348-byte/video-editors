@@ -76,6 +76,7 @@ class SceneItem(BaseModel):
     sentenceId: Optional[str] = None
     startFrame: int
     durationFrames: int
+    endFrame: Optional[int] = None
     effect: SceneEffect
     transitionOut: Optional[SceneTransition] = None
     fitMode: Optional[str] = "fill"  # fill, fit, blur_background

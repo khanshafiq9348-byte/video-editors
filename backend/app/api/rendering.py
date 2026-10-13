@@ -174,6 +174,22 @@ def trigger_render(project_id: str, req: RenderRequest, db: Session = Depends(ge
     if not tl:
         raise HTTPException(status_code=400, detail="Cannot render video: No timeline exists. Generate timeline first.")
 
+    # Validation: Ensure scenes exist and have valid non-negative durations
+    try:
+        tl_content = json.loads(tl.timeline_json or "{}")
+        tl_scenes = tl_content.get("scenes", [])
+        if not tl_scenes:
+            raise HTTPException(status_code=400, detail="Timeline has no visual scenes. Please add images or generate timeline.")
+        for sc in tl_scenes:
+            if not sc.get("imageAssetId"):
+                raise HTTPException(status_code=400, detail=f"Scene {sc.get('id')} is missing an image asset.")
+            if sc.get("durationFrames", 0) <= 0:
+                raise HTTPException(status_code=400, detail=f"Scene {sc.get('id')} has invalid duration ({sc.get('durationFrames')}).")
+    except HTTPException:
+        raise
+    except Exception as val_err:
+        raise HTTPException(status_code=400, detail=f"Timeline validation failed: {val_err}")
+
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     job = RenderJob(
         id=job_id,
@@ -196,12 +212,12 @@ def get_all_render_jobs(db: Session = Depends(get_db)):
     jobs = db.query(RenderJob).order_by(RenderJob.created_at.desc()).limit(50).all()
     return [format_job_response(j, db) for j in jobs]
 
-@router.get("/api/projects/{project_id}/latest-render-job", response_model=RenderJobResponse)
+@router.get("/api/projects/{project_id}/latest-render-job", response_model=Optional[RenderJobResponse])
 def get_latest_render_job_for_project(project_id: str, db: Session = Depends(get_db)):
-    """Returns the most recent render job for a given project."""
+    """Returns the most recent render job for a given project, or null if none."""
     job = db.query(RenderJob).filter(RenderJob.project_id == project_id).order_by(RenderJob.created_at.desc()).first()
     if not job:
-        raise HTTPException(status_code=404, detail="No render job found for this project")
+        return None
     return format_job_response(job, db)
 
 @router.get("/api/projects/{project_id}/render-jobs", response_model=List[RenderJobResponse])

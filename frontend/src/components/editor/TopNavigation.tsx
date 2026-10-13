@@ -126,6 +126,20 @@ export const TopNavigation: React.FC<{ onBackToProjects: () => void }> = ({ onBa
     }
   };
 
+  const handleTransitionStyleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newStyle = e.target.value;
+    try {
+      const updatedSettings = {
+        ...currentProject.settings,
+        transition_style: newStyle,
+      };
+      await api.updateProject(currentProject.id, { settings: updatedSettings });
+      await loadProject(currentProject.id);
+    } catch (err) {
+      setErrorMessage('Failed to update transition style');
+    }
+  };
+
   const handleConfirmExport = async () => {
     setShowExportModal(false);
 
@@ -209,11 +223,29 @@ export const TopNavigation: React.FC<{ onBackToProjects: () => void }> = ({ onBa
             value={currentProject.settings?.preset || 'documentary'}
             onChange={handlePresetChange}
             className="bg-[#232733] border border-[#373e50] rounded-md px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none"
+            title="Video Preset"
           >
             <option value="documentary">Preset: Documentary</option>
             <option value="storytelling">Preset: Storytelling</option>
             <option value="dynamic_youtube">Preset: Dynamic YouTube</option>
             <option value="minimal">Preset: Minimal</option>
+          </select>
+
+          {/* Transition Style Selector */}
+          <select
+            value={currentProject.settings?.transition_style || 'crossfade'}
+            onChange={handleTransitionStyleChange}
+            className="bg-[#232733] border border-[#373e50] rounded-md px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none"
+            title="Transition Style"
+          >
+            <option value="crossfade">Transition: Smooth Crossfade (Default)</option>
+            <option value="varied">Transition: Varied (Non-Repeating)</option>
+            <option value="cinematic">Transition: Cinematic Mix</option>
+            <option value="fade">Transition: Fade to Black</option>
+            <option value="slide_left">Transition: Slide Left</option>
+            <option value="slide_right">Transition: Slide Right</option>
+            <option value="zoom">Transition: Zoom Dissolve</option>
+            <option value="none">Transition: None (Cut)</option>
           </select>
         </div>
 

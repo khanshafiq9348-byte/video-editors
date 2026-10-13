@@ -13,7 +13,6 @@ class CaptionWord(BaseModel):
     class Config:
         populate_by_name = True
         extra = "allow"
-        allow_population_by_field_name = True
 
 class CaptionStyle(BaseModel):
     font_family: str = Field(default="Inter", alias="fontFamily")

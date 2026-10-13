@@ -247,25 +247,30 @@ def render_scene_chunk(
     in0 = get_input_flags(image_path)
     in1 = get_input_flags(next_image_path)
 
-    if trans_type in ["crossfade", "automatic", "auto"] and has_next:
-        # True seamless crossfade dissolve: match next scene's start parameters so zero jump occurs
+    def get_v1_base(is_alpha: bool = True) -> str:
         next_eff = (next_scene.get("effect") or {}).get("type", "zoom_in") if next_scene else "zoom_in"
         next_color = next_scene.get("colorTone", "original") if next_scene else "original"
         if next_eff == "zoom_out":
-            v1_scale = f"scale={int(width*1.16)}:{int(height*1.16)}:force_original_aspect_ratio=increase,crop={width}:{height}"
+            base = f"scale={int(width*1.16)}:{int(height*1.16)}:force_original_aspect_ratio=increase,crop={width}:{height}"
         else:
-            v1_scale = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
+            base = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
 
         if next_color == "warm":
-            v1_scale += ",colorchannelmixer=rr=1.08:gg=1.02:bb=0.92"
+            base += ",colorchannelmixer=rr=1.08:gg=1.02:bb=0.92"
         elif next_color == "cool":
-            v1_scale += ",colorchannelmixer=rr=0.92:gg=1.02:bb=1.08"
+            base += ",colorchannelmixer=rr=0.92:gg=1.02:bb=1.08"
         elif next_color == "cinematic":
-            v1_scale += ",eq=contrast=1.08:saturation=1.12"
+            base += ",eq=contrast=1.08:saturation=1.12"
 
+        fmt = "yuva420p" if is_alpha else "yuv420p"
+        return f"{base},format={fmt}"
+
+    if trans_type in ["crossfade", "automatic", "auto"] and has_next:
+        # True seamless crossfade dissolve: match next scene's start parameters so zero jump occurs
+        v1_scale = f"{get_v1_base(is_alpha=True)},fade=t=in:st={fade_start:.3f}:d={trans_sec:.3f}:alpha=1"
         filter_complex = (
             f"[0:v]{v0_chain}[v0];"
-            f"[1:v]{v1_scale},format=yuva420p,fade=t=in:st={fade_start:.3f}:d={trans_sec:.3f}:alpha=1[v1];"
+            f"[1:v]{v1_scale}[v1];"
             f"[v0][v1]overlay=0:0:format=yuv420,format=yuv420p[outv]"
         )
         cmd = [
@@ -290,7 +295,7 @@ def render_scene_chunk(
             "-c:v", encoder_name,
         ]
     elif trans_type == "slide_left" and has_next:
-        v1_scale = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},format=yuv420p"
+        v1_scale = get_v1_base(is_alpha=False)
         filter_complex = (
             f"[0:v]{v0_chain}[v0];"
             f"[1:v]{v1_scale}[v1];"
@@ -306,7 +311,7 @@ def render_scene_chunk(
             "-c:v", encoder_name,
         ]
     elif trans_type == "slide_right" and has_next:
-        v1_scale = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},format=yuv420p"
+        v1_scale = get_v1_base(is_alpha=False)
         filter_complex = (
             f"[0:v]{v0_chain}[v0];"
             f"[1:v]{v1_scale}[v1];"
@@ -322,7 +327,7 @@ def render_scene_chunk(
             "-c:v", encoder_name,
         ]
     elif trans_type in ["zoom", "zoom_in", "zoom_out"] and has_next:
-        v1_scale = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},format=yuva420p,fade=t=in:st={fade_start:.3f}:d={trans_sec:.3f}:alpha=1"
+        v1_scale = f"{get_v1_base(is_alpha=True)},fade=t=in:st={fade_start:.3f}:d={trans_sec:.3f}:alpha=1"
         filter_complex = (
             f"[0:v]{v0_chain}[v0];"
             f"[1:v]{v1_scale}[v1];"

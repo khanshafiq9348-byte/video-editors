@@ -35,70 +35,11 @@ export const TimelineTrack: React.FC = () => {
     initialEndFrame: number;
   } | null>(null);
 
-  if (!timeline) return null;
-
-  const fps = timeline.settings.fps || 30;
-  const totalSeconds = Math.max(10, Math.ceil(timeline.totalDurationFrames / fps));
+  const fps = timeline?.settings?.fps || 30;
   const pixelsPerSecond = zoomLevel;
   const pixelsPerFrame = pixelsPerSecond / fps;
-  const totalTimelineWidth = Math.max(800, totalSeconds * pixelsPerSecond);
 
-  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!containerRef.current || resizing) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const clickX = e.clientX - rect.left + containerRef.current.scrollLeft;
-    const targetFrame = Math.round(clickX / pixelsPerFrame);
-    setCurrentFrame(Math.max(0, Math.min(timeline.totalDurationFrames, targetFrame)));
-  };
-
-  const handleSplitCurrent = () => {
-    if (selectedCaptionId) {
-      splitCaptionSegment(selectedCaptionId, currentFrame);
-    } else if (selectedSceneId) {
-      splitScene(selectedSceneId, currentFrame);
-    }
-  };
-
-  const handleDeleteCurrent = () => {
-    if (selectedCaptionId) {
-      deleteCaptionSegment(selectedCaptionId);
-    } else if (selectedSceneId) {
-      deleteScene(selectedSceneId);
-    }
-  };
-
-  // Snap clip boundary to aligned sentence timestamps
-  const handleSnapToSentence = () => {
-    if (!selectedSceneId || !currentProject?.sentences || !timeline) return;
-    const scene = timeline.scenes.find((s) => s.id === selectedSceneId);
-    if (!scene) return;
-
-    const sortedSents = [...currentProject.sentences].sort((a, b) => a.start_time - b.start_time);
-    const sentIdx = sortedSents.findIndex((s) => s.id === scene.sentenceId);
-    const sent = sentIdx !== -1 ? sortedSents[sentIdx] :
-                 sortedSents.find((s) => Math.abs(s.start_time * fps - scene.startFrame) < fps * 4);
-    
-    if (sent) {
-      const idx = sortedSents.findIndex((s) => s.id === sent.id);
-      const newStartFrame = Math.round(sent.start_time * fps);
-      let newEndFrame = Math.round(sent.end_time * fps);
-
-      // Clip transitions to next clip when next sentence starts
-      if (idx !== -1 && idx < sortedSents.length - 1) {
-        newEndFrame = Math.max(newEndFrame, Math.round(sortedSents[idx + 1].start_time * fps));
-      } else if (timeline.totalDurationFrames > newEndFrame) {
-        newEndFrame = timeline.totalDurationFrames;
-      }
-
-      updateScene(scene.id, {
-        startFrame: newStartFrame,
-        durationFrames: Math.max(1, newEndFrame - newStartFrame),
-      });
-      setCurrentFrame(newStartFrame);
-    }
-  };
-
-  // Mouse drag handler for resizing clip edges
+  // Mouse drag handler for resizing clip edges - MUST be called unconditionally before early return
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!resizing) return;
@@ -143,6 +84,65 @@ export const TimelineTrack: React.FC = () => {
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [resizing, pixelsPerFrame]);
+
+  if (!timeline) return null;
+
+  const totalSeconds = Math.max(10, Math.ceil(timeline.totalDurationFrames / fps));
+  const totalTimelineWidth = Math.max(800, totalSeconds * pixelsPerSecond);
+
+  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!containerRef.current || resizing) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left + containerRef.current.scrollLeft;
+    const targetFrame = Math.round(clickX / pixelsPerFrame);
+    setCurrentFrame(Math.max(0, Math.min(timeline.totalDurationFrames, targetFrame)));
+  };
+
+  const handleSplitCurrent = () => {
+    if (selectedCaptionId) {
+      splitCaptionSegment(selectedCaptionId, currentFrame);
+    } else if (selectedSceneId) {
+      splitScene(selectedSceneId, currentFrame);
+    }
+  };
+
+  const handleDeleteCurrent = () => {
+    if (selectedCaptionId) {
+      deleteCaptionSegment(selectedCaptionId);
+    } else if (selectedSceneId) {
+      deleteScene(selectedSceneId);
+    }
+  };
+
+  // Snap clip boundary to aligned sentence timestamps seamlessly without gaps
+  const handleSnapToSentence = () => {
+    if (!selectedSceneId || !currentProject?.sentences || !timeline) return;
+    const scene = timeline.scenes.find((s) => s.id === selectedSceneId);
+    if (!scene) return;
+
+    const sortedSents = [...currentProject.sentences].sort((a, b) => a.start_time - b.start_time);
+    const sentIdx = sortedSents.findIndex((s) => s.id === scene.sentenceId);
+    const sent = sentIdx !== -1 ? sortedSents[sentIdx] :
+                 sortedSents.find((s) => Math.abs(s.start_time * fps - scene.startFrame) < fps * 4);
+    
+    if (sent) {
+      const idx = sortedSents.findIndex((s) => s.id === sent.id);
+      const newStartFrame = Math.round(sent.start_time * fps);
+      let newEndFrame = Math.round(sent.end_time * fps);
+
+      if (idx !== -1 && idx < sortedSents.length - 1) {
+        newEndFrame = Math.max(newEndFrame, Math.round(sortedSents[idx + 1].start_time * fps));
+      } else if (timeline.totalDurationFrames > newEndFrame) {
+        newEndFrame = timeline.totalDurationFrames;
+      }
+
+      updateScene(scene.id, {
+        startFrame: newStartFrame,
+        durationFrames: Math.max(1, newEndFrame - newStartFrame),
+      });
+      setCurrentFrame(newStartFrame);
+    }
+  };
 
   // Auto-Fix Gaps: bridge gaps without shifting clip start frames
   const handleAutoFixGaps = () => {

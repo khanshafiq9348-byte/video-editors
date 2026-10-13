@@ -1,5 +1,6 @@
 import os
 import json
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
@@ -87,12 +88,12 @@ def generate_captions(
     db.commit()
     return captions
 
-@router.get("", response_model=TimelineCaptions)
+@router.get("", response_model=Optional[TimelineCaptions])
 def get_captions(project_id: str, db: Session = Depends(get_db)):
     _, timeline_data = _get_project_timeline_data(project_id, db)
     captions_data = timeline_data.get("captions")
     if not captions_data:
-        raise HTTPException(status_code=404, detail="No captions found for this project")
+        return None
     return TimelineCaptions(**captions_data)
 
 @router.put("", response_model=TimelineCaptions)

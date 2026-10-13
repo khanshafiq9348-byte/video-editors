@@ -13,16 +13,16 @@ EFFECT_TYPES = [
     "zoom_pan"
 ]
 
-# Advanced transition rotation sequence for cinema grade edit rhythm
-CINEMATIC_TRANSITIONS = [
+# Advanced transition sequence anchored by smooth crossfades for professional cinema rhythm
+CURATED_TRANSITIONS = [
     "crossfade",
     "slide_left",
+    "crossfade",
     "zoom",
     "crossfade",
     "slide_right",
-    "fade",
-    "zoom",
-    "crossfade"
+    "crossfade",
+    "fade"
 ]
 
 def get_effect_parameters(effect_type: str, intensity: str = "medium") -> Dict[str, float]:
@@ -117,16 +117,37 @@ def select_effect_for_scene(index: int, duration_frames: int, preset: str, inten
         **params
     )
 
-def select_transition_for_scene(index: int, total_scenes: int, trans_dur_frames: int, user_style: Optional[str] = None) -> Optional[SceneTransition]:
-    """Clean, professional crossfade transition selection."""
+def select_transition_for_scene(
+    index: int,
+    total_scenes: int,
+    trans_dur_frames: int,
+    user_style: Optional[str] = None,
+    preset: Optional[str] = None
+) -> Optional[SceneTransition]:
+    """
+    Selects clean, professional transitions avoiding unintentional repetition.
+    - Uses smooth, professional crossfade as default anchor.
+    - If varied / dynamic / cinematic style or preset is chosen, rotates through curated styles without consecutive repetition.
+    - If user specifies an explicit transition (crossfade, fade, slide_left, slide_right, zoom, cut), honors it cleanly.
+    """
     if index >= total_scenes - 1:
-        return None  # Last scene needs no out-transition
-    
-    # If user selected an explicit transition style other than auto/automatic, honor it
-    if user_style and user_style not in ["automatic", "auto"]:
-        return SceneTransition(type=user_style, durationFrames=trans_dur_frames)
+        return None  # Last scene needs no transition out
 
-    # Clean, professional crossfade is standard across all scenes
+    style = (user_style or "").strip().lower()
+
+    if style == "cut":
+        return SceneTransition(type="cut", durationFrames=0)
+
+    # Explicit user choices
+    if style in ["crossfade", "fade", "slide_left", "slide_right", "zoom"]:
+        return SceneTransition(type=style, durationFrames=trans_dur_frames)
+
+    # Varied / dynamic / cinematic styles: rotate smartly without repeating the same effect
+    if style in ["varied", "cinematic", "dynamic"] or preset in ["dynamic_youtube", "storytelling"]:
+        trans_type = CURATED_TRANSITIONS[index % len(CURATED_TRANSITIONS)]
+        return SceneTransition(type=trans_type, durationFrames=trans_dur_frames)
+
+    # Default: Smooth, professional crossfade
     return SceneTransition(type="crossfade", durationFrames=trans_dur_frames)
 
 def generate_timeline(
@@ -156,69 +177,106 @@ def generate_timeline(
     # CASE 1: Voiceover has analyzed spoken sentences with timestamps
     if sentences:
         raw_sorted = sorted(sentences, key=lambda s: (float(s.get("start_time", 0.0)), int(s.get("order_index", 0))))
-        
-        # Deduplicate sentences: remove duplicate sentences with identical start times or near-identical start times (< 0.15s)
+
+        # Clean deduplication: only drop true exact duplicates (identical text + identical start time)
         sorted_sentences = []
         for s in raw_sorted:
+            txt = (s.get("text") or "").strip()
+            if not txt:
+                continue
             s_start = float(s.get("start_time", 0.0))
             if sorted_sentences:
-                prev_start = float(sorted_sentences[-1].get("start_time", 0.0))
-                if abs(s_start - prev_start) < 0.15:
-                    if float(s.get("end_time", 0.0)) > float(sorted_sentences[-1].get("end_time", 0.0)):
-                        sorted_sentences[-1] = s
+                prev = sorted_sentences[-1]
+                prev_start = float(prev.get("start_time", 0.0))
+                prev_txt = (prev.get("text") or "").strip()
+                if abs(s_start - prev_start) < 0.05 and prev_txt.lower() == txt.lower():
                     continue
             sorted_sentences.append(s)
 
         num_sentences = len(sorted_sentences)
 
-        for i, sent in enumerate(sorted_sentences):
-            img_id = image_ids[i % num_images]
-            start_sec = float(sent.get("start_time", 0.0))
-            end_sec = float(sent.get("end_time", start_sec))
-
-            # 1. Start frame: First scene MUST start at 00:00 (frame 0) so the first image and speech start from the very beginning!
-            if i == 0:
-                scene_start = 0
-            else:
-                scene_start = int(round(start_sec * fps))
-
-            # 2. Visual changes EXACTLY when the next sentence begins!
-            if i < num_sentences - 1:
-                next_start_sec = float(sorted_sentences[i + 1].get("start_time", end_sec))
-                next_start_frame = int(round(next_start_sec * fps))
-                scene_end = max(scene_start + int(fps * 0.5), next_start_frame)
-            else:
-                # Last scene extends to cover the full audio duration so visuals never end before voiceover
-                if total_audio_duration:
-                    total_audio_frames = int(round(total_audio_duration * fps))
-                    scene_end = max(int(round(end_sec * fps)), total_audio_frames)
+        if num_sentences > 0:
+            # Build contiguous sentence frame spans: each sentence covers from its start
+            # until the next sentence starts, ensuring zero gaps, zero black frames, and exact sync
+            sent_spans = []
+            for i in range(num_sentences):
+                # Scene 1 begins at frame 0 so visual covers audio from the very start
+                st_sec = 0.0 if i == 0 else float(sorted_sentences[i].get("start_time", 0.0))
+                if i < num_sentences - 1:
+                    et_sec = float(sorted_sentences[i + 1].get("start_time", 0.0))
                 else:
-                    scene_end = int(round(end_sec * fps))
+                    if total_audio_duration and total_audio_duration > 0:
+                        et_sec = max(float(sorted_sentences[i].get("end_time", 0.0)), total_audio_duration)
+                    else:
+                        et_sec = float(sorted_sentences[i].get("end_time", 0.0))
 
-            scene_duration = max(int(fps * 0.5), scene_end - scene_start)
+                start_frame = int(round(st_sec * fps))
+                end_frame = max(start_frame + 15, int(round(et_sec * fps)))
+                sent_spans.append((start_frame, end_frame))
 
-            # Effects and transitions adapt dynamically to each visual's actual duration
-            eff = select_effect_for_scene(i, scene_duration, preset, intensity)
-            dynamic_trans_frames = max(6, min(trans_dur_frames, scene_duration // 3))
-            trans = select_transition_for_scene(
-                i,
-                num_sentences,
-                dynamic_trans_frames,
-                settings.transition_style
-            )
+            # Distribute images across sentences so ALL uploaded images are utilized in order
+            if num_images > num_sentences:
+                # Proportional image counts per sentence based on spoken duration
+                weights = [max(1, span[1] - span[0]) for span in sent_spans]
+                total_w = sum(weights)
+                counts = [max(1, int(round(w / total_w * num_images))) for w in weights]
+                while sum(counts) > num_images:
+                    max_idx = counts.index(max(counts))
+                    counts[max_idx] -= 1
+                while sum(counts) < num_images:
+                    min_idx = counts.index(min(counts))
+                    counts[min_idx] += 1
+            else:
+                counts = [1] * num_sentences
 
-            scene_id = f"scene_{i+1:03d}_{uuid.uuid4().hex[:6]}"
-            scenes.append(SceneItem(
-                id=scene_id,
-                imageAssetId=img_id,
-                sentenceId=sent.get("id"),
-                startFrame=scene_start,
-                durationFrames=scene_duration,
-                effect=eff,
-                transitionOut=trans,
-                fitMode=getattr(settings, "fit_mode", "fill"),
-                colorTone=getattr(settings, "color_tone", "original")
-            ))
+            # Build contiguous scenes
+            curr_img_idx = 0
+            scene_counter = 0
+
+            # Calculate total scenes to be created
+            total_expected_scenes = sum(counts) if num_images > num_sentences else num_sentences
+
+            for s_idx in range(num_sentences):
+                span_start, span_end = sent_spans[s_idx]
+                span_dur = max(15, span_end - span_start)
+                num_sub_scenes = counts[s_idx]
+                sub_dur = span_dur // num_sub_scenes
+
+                for sub in range(num_sub_scenes):
+                    if num_images > num_sentences:
+                        img_id = image_ids[curr_img_idx]
+                        curr_img_idx += 1
+                    else:
+                        img_id = image_ids[s_idx % num_images]
+
+                    scene_start = span_start + sub * sub_dur
+                    scene_duration = (span_end - scene_start) if sub == num_sub_scenes - 1 else sub_dur
+                    scene_end = scene_start + scene_duration
+
+                    eff = select_effect_for_scene(scene_counter, scene_duration, preset, intensity)
+                    dynamic_trans_frames = max(6, min(trans_dur_frames, scene_duration // 3))
+                    trans = select_transition_for_scene(
+                        scene_counter,
+                        total_expected_scenes,
+                        dynamic_trans_frames,
+                        settings.transition_style,
+                        preset
+                    )
+
+                    scene_id = f"scene_{scene_counter + 1:03d}_{uuid.uuid4().hex[:6]}"
+                    scenes.append(SceneItem(
+                        id=scene_id,
+                        imageAssetId=img_id,
+                        sentenceId=sorted_sentences[s_idx].get("id"),
+                        startFrame=scene_start,
+                        endFrame=scene_end,
+                        durationFrames=scene_duration,
+                        effect=eff,
+                        transitionOut=trans,
+                        fitMode=getattr(settings, "fit_mode", "fill"),
+                        colorTone=getattr(settings, "color_tone", "original")
+                    ))
+                    scene_counter += 1
 
     # CASE 2: Audio exists without detected sentence timestamps (e.g. music/instrumental track)
     elif audio_asset_id and total_audio_duration and total_audio_duration > 0:
@@ -235,12 +293,13 @@ def generate_timeline(
 
             curr_frame += scene_duration
             eff = select_effect_for_scene(i, scene_duration, preset, intensity)
-            dynamic_trans_frames = max(1, min(trans_dur_frames, scene_duration // 2))
+            dynamic_trans_frames = max(6, min(trans_dur_frames, scene_duration // 3))
             trans = select_transition_for_scene(
                 i,
                 num_images,
                 dynamic_trans_frames,
-                settings.transition_style
+                settings.transition_style,
+                preset
             )
 
             scene_id = f"scene_{i+1:03d}_{uuid.uuid4().hex[:6]}"
@@ -249,6 +308,7 @@ def generate_timeline(
                 imageAssetId=img_id,
                 sentenceId=None,
                 startFrame=scene_start,
+                endFrame=scene_start + scene_duration,
                 durationFrames=scene_duration,
                 effect=eff,
                 transitionOut=trans,
@@ -267,12 +327,13 @@ def generate_timeline(
             curr_frame += scene_duration
 
             eff = select_effect_for_scene(i, scene_duration, preset, intensity)
-            dynamic_trans_frames = max(1, min(trans_dur_frames, scene_duration // 2))
+            dynamic_trans_frames = max(6, min(trans_dur_frames, scene_duration // 3))
             trans = select_transition_for_scene(
                 i,
                 num_images,
                 dynamic_trans_frames,
-                settings.transition_style
+                settings.transition_style,
+                preset
             )
 
             scene_id = f"scene_{i+1:03d}_{uuid.uuid4().hex[:6]}"
@@ -281,6 +342,7 @@ def generate_timeline(
                 imageAssetId=img_id,
                 sentenceId=None,
                 startFrame=scene_start,
+                endFrame=scene_start + scene_duration,
                 durationFrames=scene_duration,
                 effect=eff,
                 transitionOut=trans,
