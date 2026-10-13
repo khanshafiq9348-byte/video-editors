@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+*/node_modules/
+package-lock.json.bak
+
+# Production builds
+dist/
+*/dist/
+build/
+*/build/
+
+# Python cache & virtual environments
+__pycache__/
+*/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.db
+*.sqlite
+*.sqlite3
+.Python
+env/
+venv/
+.venv/
+.pytest_cache/
+
+# Local runtime storage & database
+storage/
+!storage/.gitkeep
+!storage/projects/.gitkeep
+!storage/renders/.gitkeep
+!storage/temp/.gitkeep
+!storage/logs/.gitkeep
+!storage/uploads/.gitkeep
+
+# Remotion caches
+.remotion/
+*/.remotion/
+
+# Scratch & test outputs
+scratch/
+test_out.wav
+*.log
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
