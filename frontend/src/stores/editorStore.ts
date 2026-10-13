@@ -652,18 +652,58 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   exportSrt: () => {
-    const { currentProject } = get();
+    const { currentProject, timeline } = get();
     if (!currentProject) return;
-    const url = api.getSrtExportUrl(currentProject.id);
     const filename = `${(currentProject.name || 'captions').replace(/[^a-zA-Z0-9_\-]/g, '_')}.srt`;
+    if (timeline?.captions?.segments && timeline.captions.segments.length > 0) {
+      const srtText = timeline.captions.segments.map((seg, idx) => {
+        const formatSrtTime = (sec: number) => {
+          const totalSec = Math.floor(sec);
+          const ms = Math.floor((sec - totalSec) * 1000);
+          const hrs = Math.floor(totalSec / 3600);
+          const mins = Math.floor((totalSec % 3600) / 60);
+          const s = totalSec % 60;
+          return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+        };
+        const st = seg.startTime ?? (seg.startFrame / 30);
+        const et = seg.endTime ?? (seg.endFrame / 30);
+        return `${idx + 1}\n${formatSrtTime(st)} --> ${formatSrtTime(et)}\n${seg.text}\n`;
+      }).join('\n');
+      const blob = new Blob([srtText], { type: 'text/plain' });
+      const blobUrl = URL.createObjectURL(blob);
+      triggerBrowserDownload(blobUrl, filename);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      return;
+    }
+    const url = api.getSrtExportUrl(currentProject.id);
     triggerBrowserDownload(url, filename);
   },
 
   exportVtt: () => {
-    const { currentProject } = get();
+    const { currentProject, timeline } = get();
     if (!currentProject) return;
-    const url = api.getVttExportUrl(currentProject.id);
     const filename = `${(currentProject.name || 'captions').replace(/[^a-zA-Z0-9_\-]/g, '_')}.vtt`;
+    if (timeline?.captions?.segments && timeline.captions.segments.length > 0) {
+      const vttText = 'WEBVTT\n\n' + timeline.captions.segments.map((seg, idx) => {
+        const formatVttTime = (sec: number) => {
+          const totalSec = Math.floor(sec);
+          const ms = Math.floor((sec - totalSec) * 1000);
+          const hrs = Math.floor(totalSec / 3600);
+          const mins = Math.floor((totalSec % 3600) / 60);
+          const s = totalSec % 60;
+          return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+        };
+        const st = seg.startTime ?? (seg.startFrame / 30);
+        const et = seg.endTime ?? (seg.endFrame / 30);
+        return `${idx + 1}\n${formatVttTime(st)} --> ${formatVttTime(et)}\n${seg.text}\n`;
+      }).join('\n');
+      const blob = new Blob([vttText], { type: 'text/vtt' });
+      const blobUrl = URL.createObjectURL(blob);
+      triggerBrowserDownload(blobUrl, filename);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      return;
+    }
+    const url = api.getVttExportUrl(currentProject.id);
     triggerBrowserDownload(url, filename);
   },
 

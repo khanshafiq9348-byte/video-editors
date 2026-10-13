@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { ProjectDetail, ProjectSettings, Asset, SentenceItem, TimelineData, RenderJob, SceneItem, TimelineAudio } from '../types/timeline';
+import { BUILTIN_CAPTION_PRESETS } from '../types/captions';
 import {
   getLocalProjects,
   getLocalProject,
@@ -879,12 +880,17 @@ export const api = {
         return res.data;
       }
     } catch (e: any) {
-      // Backend returned an error response: propagate actual error to the user!
-      if (e?.response) {
-        const errorDetail = e.response.data?.detail || e.message;
-        throw new Error(errorDetail);
+      // If the backend exists (e.g. local FastAPI) and explicitly returned a 400 or 422 application validation error:
+      if (
+        e?.response &&
+        (e.response.status === 400 || e.response.status === 422) &&
+        e.response.data?.detail &&
+        typeof e.response.data.detail === 'string'
+      ) {
+        throw new Error(e.response.data.detail);
       }
-      console.warn('[Captions] Backend unavailable, falling back to local store:', e?.message);
+      // On Vercel production deployment (where API routes return 404/405/HTML) or in offline/client mode:
+      console.warn('[Captions] Backend API unavailable or returned', e?.response?.status || e?.message, '— generating captions in browser');
     }
 
     const localProj = getLocalProject(projectId);
@@ -949,17 +955,20 @@ export const api = {
       });
     }
 
-    // Never return fake placeholder text: if no speech could be aligned, report clear error
+    // Never return empty captions: if no speech could be aligned, report clear error
     if (segments.length === 0) {
-      throw new Error('No spoken voiceover detected. Please upload an audio or video file with clear speech.');
+      throw new Error('No voiceover audio or media found. Please upload an audio or video file first.');
     }
+
+    const selectedPresetId = options?.presetId || 'preset_yellow_karaoke';
+    const preset = BUILTIN_CAPTION_PRESETS.find((p) => p.id === selectedPresetId) || BUILTIN_CAPTION_PRESETS[0];
 
     const realCaptions = {
       enabled: true,
-      mode: options?.mode || 'karaoke',
+      mode: options?.mode || preset.mode || 'karaoke',
       settings: {
-        selectedPresetId: options?.presetId || 'preset_yellow_karaoke',
-        globalStyle: {},
+        selectedPresetId: preset.id,
+        globalStyle: { ...preset.style },
         customPresets: [],
       },
       segments,
