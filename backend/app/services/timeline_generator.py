@@ -267,6 +267,16 @@ def split_sentence_into_subsegments(
     step = (end_sec - start_sec) / count
     return [(round(start_sec + i * step, 3), round(start_sec + (i + 1) * step, 3)) for i in range(count)]
 
+def get_sent_start(s: Dict[str, Any]) -> float:
+    if "start_time" in s and s["start_time"] is not None:
+        return float(s["start_time"])
+    return float(s.get("start", 0.0))
+
+def get_sent_end(s: Dict[str, Any]) -> float:
+    if "end_time" in s and s["end_time"] is not None:
+        return float(s["end_time"])
+    return float(s.get("end", 0.0))
+
 def generate_timeline(
     project_id: str,
     settings: ProjectSettings,
@@ -293,20 +303,22 @@ def generate_timeline(
 
     # CASE 1: Voiceover has analyzed spoken sentences with timestamps
     if sentences:
-        raw_sorted = sorted(sentences, key=lambda s: (float(s.get("start_time", 0.0)), int(s.get("order_index", 0))))
+        raw_sorted = sorted(sentences, key=lambda s: (get_sent_start(s), int(s.get("order_index", 0))))
 
-        # Clean deduplication: only drop true exact duplicates
+        # Deduplicate sentences: remove duplicate sentences with near-identical start times (< 0.10s)
         sorted_sentences = []
         for s in raw_sorted:
             txt = (s.get("text") or "").strip()
             if not txt:
                 continue
-            s_start = float(s.get("start_time", 0.0))
+            s_start = get_sent_start(s)
             if sorted_sentences:
                 prev = sorted_sentences[-1]
-                prev_start = float(prev.get("start_time", 0.0))
+                prev_start = get_sent_start(prev)
                 prev_txt = (prev.get("text") or "").strip()
-                if abs(s_start - prev_start) < 0.05 and prev_txt.lower() == txt.lower():
+                if abs(s_start - prev_start) < 0.10 and (prev_txt.lower() == txt.lower() or abs(get_sent_end(s) - get_sent_end(prev)) < 0.10):
+                    if get_sent_end(s) > get_sent_end(prev):
+                        sorted_sentences[-1] = s
                     continue
             sorted_sentences.append(s)
 
@@ -314,29 +326,75 @@ def generate_timeline(
 
         if num_sentences > 0:
             total_end_sec = max(
-                float(sorted_sentences[-1].get("end_time", 0.0)),
+                get_sent_end(sorted_sentences[-1]),
                 (total_audio_duration or 0.0)
             )
 
-            # raw_scene_specs: List of dict(image_id, sentence_id, start_sec, end_sec)
-            raw_scene_specs = []
+            # CASE A: num_images <= num_sentences
+            # Every sentence corresponds directly to a visual scene.
+            # Visuals change exactly when each sentence begins.
+            if num_images <= num_sentences:
+                for i, sent in enumerate(sorted_sentences):
+                    img_id = image_ids[i % num_images]
+                    start_sec = get_sent_start(sent)
+                    end_sec = get_sent_end(sent)
 
-            # 1. Exact match: 1 visual per sentence
-            if num_images == num_sentences:
-                for i in range(num_images):
-                    st = 0.0 if i == 0 else float(sorted_sentences[i].get("start_time", 0.0))
-                    et = float(sorted_sentences[i + 1].get("start_time", 0.0)) if i < num_images - 1 else total_end_sec
-                    raw_scene_specs.append({
-                        "image_id": image_ids[i],
-                        "sentence_id": sorted_sentences[i].get("id"),
-                        "start_sec": st,
-                        "end_sec": et
-                    })
+                    # 1. Start frame: First scene starts at 00:00 (frame 0)
+                    if i == 0:
+                        scene_start = 0
+                    else:
+                        scene_start = int(round(start_sec * fps))
 
-            # 2. More images than sentences: split sentences into speech-accurate phrase segments
-            elif num_images > num_sentences:
+                    # 2. Visual changes exactly when the next sentence begins
+                    if i < num_sentences - 1:
+                        next_start_sec = get_sent_start(sorted_sentences[i + 1])
+                        next_start_frame = int(round(next_start_sec * fps))
+                        scene_end = max(scene_start + int(fps * 0.5), next_start_frame)
+                    else:
+                        if total_audio_duration and total_audio_duration > 0:
+                            total_audio_frames = int(round(total_audio_duration * fps))
+                            scene_end = max(int(round(end_sec * fps)), total_audio_frames)
+                        else:
+                            scene_end = int(round(end_sec * fps))
+
+                    scene_duration = max(int(fps * 0.5), scene_end - scene_start)
+
+                    eff = select_effect_for_scene(
+                        i,
+                        scene_duration,
+                        preset,
+                        intensity,
+                        settings.effect_style
+                    )
+                    dynamic_trans_frames = max(6, min(trans_dur_frames, scene_duration // 3))
+                    trans = select_transition_for_scene(
+                        i,
+                        num_sentences,
+                        dynamic_trans_frames,
+                        settings.transition_style,
+                        preset
+                    )
+
+                    scene_id = f"scene_{i + 1:03d}_{uuid.uuid4().hex[:6]}"
+                    scenes.append(SceneItem(
+                        id=scene_id,
+                        imageAssetId=img_id,
+                        sentenceId=sent.get("id"),
+                        startFrame=scene_start,
+                        endFrame=scene_end,
+                        durationFrames=scene_duration,
+                        effect=eff,
+                        transitionOut=trans,
+                        fitMode=getattr(settings, "fit_mode", "fill"),
+                        colorTone=getattr(settings, "color_tone", "original")
+                    ))
+
+            # CASE B: num_images > num_sentences
+            # More images than sentences: split longer sentences into speech-accurate phrase segments
+            # using word-level pauses, punctuation, and clause timestamps.
+            else:
                 durations = [
-                    max(0.1, float(s.get("end_time", 0.0)) - float(s.get("start_time", 0.0)))
+                    max(0.1, get_sent_end(s) - get_sent_start(s))
                     for s in sorted_sentences
                 ]
                 counts = [1] * num_sentences
@@ -346,10 +404,11 @@ def generate_timeline(
                     counts[idx] += 1
                     rem -= 1
 
+                raw_scene_specs = []
                 curr_img_idx = 0
                 for j in range(num_sentences):
-                    st = 0.0 if j == 0 else float(sorted_sentences[j].get("start_time", 0.0))
-                    et = float(sorted_sentences[j + 1].get("start_time", 0.0)) if j < num_sentences - 1 else total_end_sec
+                    st = 0.0 if j == 0 else get_sent_start(sorted_sentences[j])
+                    et = get_sent_start(sorted_sentences[j + 1]) if j < num_sentences - 1 else total_end_sec
                     sub_spans = split_sentence_into_subsegments(sorted_sentences[j], counts[j], st, et)
                     for sub_st, sub_et in sub_spans:
                         raw_scene_specs.append({
@@ -360,89 +419,50 @@ def generate_timeline(
                         })
                         curr_img_idx += 1
 
-            # 3. Fewer images than sentences: group sentences into contiguous blocks
-            else:
-                sent_durs = [
-                    max(0.1, float(s.get("end_time", 0.0)) - float(s.get("start_time", 0.0)))
-                    for s in sorted_sentences
-                ]
-                total_dur = sum(sent_durs)
-                target_per_img = total_dur / num_images
-
-                # Partition sentences into num_images contiguous groups
-                group_starts = [0]
-                curr_accum = 0.0
-                curr_sent_idx = 0
-                for img_i in range(1, num_images):
-                    target_time = img_i * target_per_img
-                    while curr_sent_idx < num_sentences - 1 and (curr_accum + sent_durs[curr_sent_idx]) < target_time:
-                        curr_accum += sent_durs[curr_sent_idx]
-                        curr_sent_idx += 1
-                    curr_accum += sent_durs[curr_sent_idx]
-                    curr_sent_idx = min(curr_sent_idx + 1, num_sentences - (num_images - img_i))
-                    group_starts.append(curr_sent_idx)
-
-                for img_i in range(num_images):
-                    s_first_idx = group_starts[img_i]
-                    st = 0.0 if img_i == 0 else float(sorted_sentences[s_first_idx].get("start_time", 0.0))
-                    if img_i < num_images - 1:
-                        s_next_idx = group_starts[img_i + 1]
-                        et = float(sorted_sentences[s_next_idx].get("start_time", 0.0))
+                curr_frame = 0
+                total_expected_scenes = len(raw_scene_specs)
+                for idx, spec in enumerate(raw_scene_specs):
+                    scene_start = curr_frame
+                    target_end = int(round(spec["end_sec"] * fps))
+                    if idx == total_expected_scenes - 1:
+                        if total_audio_duration and total_audio_duration > 0:
+                            target_end = max(target_end, int(round(total_audio_duration * fps)))
+                        scene_end = max(scene_start + int(fps * 0.5), target_end)
                     else:
-                        et = total_end_sec
+                        scene_end = max(scene_start + int(fps * 0.5), target_end)
 
-                    raw_scene_specs.append({
-                        "image_id": image_ids[img_i],
-                        "sentence_id": sorted_sentences[s_first_idx].get("id"),
-                        "start_sec": st,
-                        "end_sec": et
-                    })
+                    scene_duration = scene_end - scene_start
+                    curr_frame = scene_end
 
-            # Build contiguous, frame-accurate SceneItem list
-            total_expected_scenes = len(raw_scene_specs)
-            curr_frame = 0
-            for idx, spec in enumerate(raw_scene_specs):
-                scene_start = curr_frame
-                target_end = int(round(spec["end_sec"] * fps))
-                if idx == total_expected_scenes - 1:
-                    if total_audio_duration and total_audio_duration > 0:
-                        target_end = max(target_end, int(round(total_audio_duration * fps)))
-                    scene_end = max(scene_start + 15, target_end)
-                else:
-                    scene_end = max(scene_start + 15, target_end)
+                    eff = select_effect_for_scene(
+                        idx,
+                        scene_duration,
+                        preset,
+                        intensity,
+                        settings.effect_style
+                    )
+                    dynamic_trans_frames = max(6, min(trans_dur_frames, scene_duration // 3))
+                    trans = select_transition_for_scene(
+                        idx,
+                        total_expected_scenes,
+                        dynamic_trans_frames,
+                        settings.transition_style,
+                        preset
+                    )
 
-                scene_duration = scene_end - scene_start
-                curr_frame = scene_end
-
-                eff = select_effect_for_scene(
-                    idx,
-                    scene_duration,
-                    preset,
-                    intensity,
-                    settings.effect_style
-                )
-                dynamic_trans_frames = max(6, min(trans_dur_frames, scene_duration // 3))
-                trans = select_transition_for_scene(
-                    idx,
-                    total_expected_scenes,
-                    dynamic_trans_frames,
-                    settings.transition_style,
-                    preset
-                )
-
-                scene_id = f"scene_{idx + 1:03d}_{uuid.uuid4().hex[:6]}"
-                scenes.append(SceneItem(
-                    id=scene_id,
-                    imageAssetId=spec["image_id"],
-                    sentenceId=spec["sentence_id"],
-                    startFrame=scene_start,
-                    endFrame=scene_end,
-                    durationFrames=scene_duration,
-                    effect=eff,
-                    transitionOut=trans,
-                    fitMode=getattr(settings, "fit_mode", "fill"),
-                    colorTone=getattr(settings, "color_tone", "original")
-                ))
+                    scene_id = f"scene_{idx + 1:03d}_{uuid.uuid4().hex[:6]}"
+                    scenes.append(SceneItem(
+                        id=scene_id,
+                        imageAssetId=spec["image_id"],
+                        sentenceId=spec["sentence_id"],
+                        startFrame=scene_start,
+                        endFrame=scene_end,
+                        durationFrames=scene_duration,
+                        effect=eff,
+                        transitionOut=trans,
+                        fitMode=getattr(settings, "fit_mode", "fill"),
+                        colorTone=getattr(settings, "color_tone", "original")
+                    ))
 
     # CASE 2: Audio exists without detected sentence timestamps (e.g. music/instrumental track)
     elif audio_asset_id and total_audio_duration and total_audio_duration > 0:

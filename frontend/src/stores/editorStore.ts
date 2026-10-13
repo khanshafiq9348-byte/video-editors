@@ -646,10 +646,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { currentProject, loadProject } = get();
     if (!currentProject) return;
     try {
-      set({ isLoading: true, statusMessage: 'Generating automatic timeline...' });
+      set({ isLoading: true, statusMessage: 'Analyzing voiceover & aligning timeline...' });
+      const hasAudio = currentProject.assets.some((a) => a.type === 'audio');
+      if (hasAudio && (!currentProject.sentences || currentProject.sentences.length === 0)) {
+        await api.analyzeAudio(currentProject.id);
+      }
       const tl = await api.generateTimeline(currentProject.id);
       await loadProject(currentProject.id);
-      set({ timeline: tl, isLoading: false, statusMessage: 'Timeline ready!' });
+      set({ timeline: tl, isLoading: false, statusMessage: 'Timeline synchronized to voiceover!' });
     } catch (err: any) {
       set({
         isLoading: false,

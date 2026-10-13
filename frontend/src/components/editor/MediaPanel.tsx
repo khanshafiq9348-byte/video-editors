@@ -106,6 +106,20 @@ export const MediaPanel: React.FC = () => {
         });
       }
 
+      if (audioFiles.length > 0) {
+        setStatusMessage('Analyzing voiceover speech and sentence timestamps...');
+        try {
+          await api.analyzeAudio(currentProject.id);
+          const hasVisuals = currentProject.assets.some((a) => a.type === 'image' || a.type === 'video') || mediaFiles.length > 0;
+          if (hasVisuals) {
+            setStatusMessage('Synchronizing visual timeline with voiceover...');
+            await api.generateTimeline(currentProject.id);
+          }
+        } catch (analysisErr) {
+          console.warn('Voiceover auto-align notice:', analysisErr);
+        }
+      }
+
       await loadProject(currentProject.id);
 
       if (skippedUnsupportedCount > 0) {
@@ -147,8 +161,19 @@ export const MediaPanel: React.FC = () => {
       await api.uploadAudio(currentProject.id, file, {
         replace: !isMultiLanguage,
       });
+      setStatusMessage('Analyzing voiceover sentences & speech timing...');
+      try {
+        await api.analyzeAudio(currentProject.id);
+        const hasVisuals = currentProject.assets.some((a) => a.type === 'image' || a.type === 'video');
+        if (hasVisuals) {
+          setStatusMessage('Aligning visuals to spoken sentences...');
+          await api.generateTimeline(currentProject.id);
+        }
+      } catch (analysisErr) {
+        console.warn('Voiceover auto-align notice:', analysisErr);
+      }
       await loadProject(currentProject.id);
-      setStatusMessage('Voiceover uploaded successfully');
+      setStatusMessage('Voiceover uploaded & synchronized with visuals!');
     } catch (err: any) {
       setErrorMessage(err.response?.data?.detail || 'Failed to upload audio');
     } finally {

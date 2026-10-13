@@ -21,7 +21,7 @@ const getBaseUrl = () => {
 
 const client = axios.create({
   baseURL: getBaseUrl(),
-  timeout: 15000,
+  timeout: 180000,
 });
 
 function isInvalidOrHtml(data: any): boolean {
@@ -547,13 +547,14 @@ export const api = {
       const sorted = [...sentences].sort((a, b) => a.start_time - b.start_time);
       const totalEndSec = Math.max(sorted[sorted.length - 1].end_time, totalAudioDuration || 0);
 
-      if (numImages === numSentences) {
-        // Exact 1-to-1: visual duration directly equals spoken sentence duration
-        for (let i = 0; i < numImages; i++) {
+      if (numImages <= numSentences) {
+        // Every sentence corresponds directly to a visual scene.
+        // Visuals change exactly when each sentence begins.
+        for (let i = 0; i < numSentences; i++) {
           const st = i === 0 ? 0.0 : sorted[i].start_time;
-          const et = i < numImages - 1 ? sorted[i + 1].start_time : totalEndSec;
+          const et = i < numSentences - 1 ? sorted[i + 1].start_time : totalEndSec;
           rawScenes.push({
-            assetId: visualAssets[i].id,
+            assetId: visualAssets[i % numImages].id,
             sentenceId: sorted[i].id,
             startSec: st,
             endSec: Math.max(st + 0.5, et),
@@ -633,37 +634,6 @@ export const api = {
             });
             currImgIdx++;
           }
-        }
-      } else {
-        // Fewer images than sentences: group sentences into contiguous blocks
-        const sentDurs = sorted.map((s) => Math.max(0.2, s.end_time - s.start_time));
-        const totalDur = sentDurs.reduce((acc, d) => acc + d, 0);
-        const targetPerImg = totalDur / numImages;
-
-        const groupStarts = [0];
-        let currAccum = 0;
-        let currSent = 0;
-        for (let i = 1; i < numImages; i++) {
-          const target = i * targetPerImg;
-          while (currSent < numSentences - 1 && (currAccum + sentDurs[currSent]) < target) {
-            currAccum += sentDurs[currSent];
-            currSent++;
-          }
-          currAccum += sentDurs[currSent];
-          currSent = Math.min(currSent + 1, numSentences - (numImages - i));
-          groupStarts.push(currSent);
-        }
-
-        for (let i = 0; i < numImages; i++) {
-          const firstIdx = groupStarts[i];
-          const st = i === 0 ? 0.0 : sorted[firstIdx].start_time;
-          const et = i < numImages - 1 ? sorted[groupStarts[i + 1]].start_time : totalEndSec;
-          rawScenes.push({
-            assetId: visualAssets[i].id,
-            sentenceId: sorted[firstIdx].id,
-            startSec: st,
-            endSec: Math.max(st + 0.5, et),
-          });
         }
       }
     } else if (totalAudioDuration > 0 && numImages > 0) {
@@ -900,30 +870,65 @@ export const api = {
       return existing;
     }
 
-    const sampleCaps = {
+    let sentences = (localProj?.sentences || []).filter((s) => s.text && s.text.trim());
+    if (sentences.length === 0) {
+      const audioAsset = (localProj?.assets || []).find((a) => a.type === 'audio');
+      if (audioAsset) {
+        try {
+          sentences = await api.analyzeAudio(projectId);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+
+    const fps = localProj?.settings?.fps || 30;
+    let segments: any[] = [];
+
+    if (sentences.length > 0) {
+      segments = sentences.map((sent, sIdx) => {
+        const stSec = sent.start_time ?? 0.0;
+        const etSec = sent.end_time ?? (stSec + 2.0);
+        const stFrame = Math.round(stSec * fps);
+        const etFrame = Math.max(stFrame + 5, Math.round(etSec * fps));
+
+        const wordsList = Array.isArray(sent.words) && sent.words.length > 0
+          ? sent.words.map((w: any, wIdx: number) => {
+              const wStSec = Number(w.start ?? stSec);
+              const wEtSec = Number(w.end ?? etSec);
+              return {
+                id: `w_${sIdx + 1}_${wIdx + 1}`,
+                text: w.word || '',
+                startTime: wStSec,
+                endTime: wEtSec,
+                startFrame: Math.round(wStSec * fps),
+                endFrame: Math.max(Math.round(wStSec * fps) + 1, Math.round(wEtSec * fps)),
+                confidence: Number(w.confidence ?? 1.0),
+              };
+            })
+          : [];
+
+        return {
+          id: `seg_${sIdx + 1}`,
+          text: sent.text,
+          startTime: stSec,
+          endTime: etSec,
+          startFrame: stFrame,
+          endFrame: etFrame,
+          words: wordsList,
+        };
+      });
+    }
+
+    const realCaptions = {
       enabled: true,
-      mode: options?.mode || 'line',
+      mode: options?.mode || 'karaoke',
       settings: {
-        selectedPresetId: options?.presetId || 'bold_yellow',
+        selectedPresetId: options?.presetId || 'preset_yellow_karaoke',
         globalStyle: {},
         customPresets: [],
       },
-      segments: [
-        {
-          id: 'seg_1',
-          startTime: 0,
-          endTime: 2.5,
-          startFrame: 0,
-          endFrame: 75,
-          text: 'Welcome to AutoVideo Studio.',
-          words: [
-            { id: 'w_1', text: 'Welcome', startFrame: 0, endFrame: 20, startTime: 0, endTime: 0.67, confidence: 1 },
-            { id: 'w_2', text: 'to', startFrame: 21, endFrame: 35, startTime: 0.7, endTime: 1.16, confidence: 1 },
-            { id: 'w_3', text: 'AutoVideo', startFrame: 36, endFrame: 55, startTime: 1.2, endTime: 1.83, confidence: 1 },
-            { id: 'w_4', text: 'Studio.', startFrame: 56, endFrame: 75, startTime: 1.87, endTime: 2.5, confidence: 1 },
-          ],
-        },
-      ],
+      segments,
     };
 
     if (localProj) {
@@ -937,10 +942,10 @@ export const api = {
           captions: null,
         };
       }
-      localProj.timeline.captions = sampleCaps as any;
+      localProj.timeline.captions = realCaptions as any;
       saveLocalProject(localProj);
     }
-    return sampleCaps;
+    return realCaptions;
   },
 
   getCaptions: async (projectId: string): Promise<any> => {

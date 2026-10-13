@@ -133,7 +133,7 @@ def auto_generate_timeline(project_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Persist timeline preserving any existing captions
+    # Persist timeline preserving any existing captions, or auto-generating if none exist
     existing_tl = db.query(Timeline).filter(Timeline.project_id == project_id).first()
     if existing_tl and existing_tl.timeline_json:
         try:
@@ -143,6 +143,21 @@ def auto_generate_timeline(project_id: str, db: Session = Depends(get_db)):
                 timeline_data.captions = TimelineCaptions(**old_data["captions"])
         except Exception:
             pass
+
+    # If timeline has no captions and voiceover audio exists, automatically generate synchronized captions
+    if not timeline_data.captions and audio_asset:
+        audio_full_path = os.path.join(STORAGE_DIR, audio_asset.storage_path)
+        if os.path.exists(audio_full_path):
+            try:
+                from app.services.caption_service import generate_captions_from_audio
+                fps = settings.fps or 30
+                timeline_data.captions = generate_captions_from_audio(
+                    audio_path=audio_full_path,
+                    fps=fps,
+                    user_script=project.script
+                )
+            except Exception as e:
+                print(f"[TimelineGeneration] Auto-generate captions notice: {e}")
 
     dump_data = timeline_data.model_dump(by_alias=True) if hasattr(timeline_data, "model_dump") else timeline_data.dict(by_alias=True)
     if not existing_tl:
