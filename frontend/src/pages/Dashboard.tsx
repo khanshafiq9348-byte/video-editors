@@ -79,7 +79,6 @@ export const Dashboard: React.FC<{ onOpenProject: (id: string) => void }> = ({ o
       }
     } catch (e: any) {
       setProjects([]);
-      setError('Could not connect to AutoVideo Studio API. Make sure the backend server is running.');
     } finally {
       setLoading(false);
     }
