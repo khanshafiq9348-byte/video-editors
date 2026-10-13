@@ -7,6 +7,16 @@ from app.api import projects, uploads, transcription, rendering, captions
 
 # Initialize DB tables
 Base.metadata.create_all(bind=engine)
+try:
+    with engine.connect() as _conn:
+        _cursor = _conn.connection.cursor()
+        _cursor.execute("PRAGMA table_info(sentences)")
+        _cols = [row[1] for row in _cursor.fetchall()]
+        if "words_json" not in _cols:
+            _cursor.execute("ALTER TABLE sentences ADD COLUMN words_json TEXT DEFAULT '[]'")
+            _conn.connection.commit()
+except Exception as _e:
+    print(f"[DB Init] Notice: {_e}")
 
 app = FastAPI(
     title="AutoVideo Studio API",

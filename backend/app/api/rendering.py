@@ -65,36 +65,59 @@ def auto_generate_timeline(project_id: str, db: Session = Depends(get_db)):
     sentences = db.query(Sentence).filter(Sentence.project_id == project_id).order_by(Sentence.order_index.asc()).all()
 
     # If voiceover audio exists but sentences have not been analyzed yet, automatically analyze now!
-    if audio_asset and not sentences:
+    if audio_asset:
         audio_full_path = os.path.join(STORAGE_DIR, audio_asset.storage_path)
         if os.path.exists(audio_full_path):
             from app.services.sentence_aligner import analyze_and_segment_audio
-            try:
-                segments = analyze_and_segment_audio(audio_full_path, user_script=project.script)
-                if segments:
-                    for idx, seg in enumerate(segments):
-                        sent_id = f"sent_{idx+1:03d}_{uuid.uuid4().hex[:6]}"
-                        sent = Sentence(
-                            id=sent_id,
-                            project_id=project_id,
-                            order_index=idx,
-                            text=seg["text"],
-                            start_time=seg["start"],
-                            end_time=seg["end"],
-                            confidence=seg.get("confidence", 1.0)
-                        )
-                        db.add(sent)
-                    db.commit()
-                    sentences = db.query(Sentence).filter(Sentence.project_id == project_id).order_by(Sentence.order_index.asc()).all()
-            except Exception as e:
-                print(f"[TimelineGeneration] Voiceover analysis notice: {e}")
+            if not sentences:
+                try:
+                    segments = analyze_and_segment_audio(audio_full_path, user_script=project.script)
+                    if segments:
+                        for idx, seg in enumerate(segments):
+                            sent_id = f"sent_{idx+1:03d}_{uuid.uuid4().hex[:6]}"
+                            sent = Sentence(
+                                id=sent_id,
+                                project_id=project_id,
+                                order_index=idx,
+                                text=seg["text"],
+                                start_time=seg["start"],
+                                end_time=seg["end"],
+                                confidence=seg.get("confidence", 1.0),
+                                words_json=json.dumps(seg.get("words") or [])
+                            )
+                            db.add(sent)
+                        db.commit()
+                        sentences = db.query(Sentence).filter(Sentence.project_id == project_id).order_by(Sentence.order_index.asc()).all()
+                except Exception as e:
+                    print(f"[TimelineGeneration] Voiceover analysis notice: {e}")
+            else:
+                # If sentences exist but don't have word timestamps, populate them
+                has_any_words = any(
+                    bool(getattr(s, "words_json", None) and json.loads(s.words_json))
+                    for s in sentences
+                )
+                if not has_any_words:
+                    try:
+                        segments = analyze_and_segment_audio(audio_full_path, user_script=project.script)
+                        if segments and len(segments) == len(sentences):
+                            for idx, s in enumerate(sentences):
+                                s.words_json = json.dumps(segments[idx].get("words") or [])
+                            db.commit()
+                    except Exception as e:
+                        print(f"[TimelineGeneration] Word alignment notice: {e}")
 
     settings_dict = json.loads(project.settings_json or "{}")
     settings = ProjectSettings(**settings_dict)
 
     image_ids = [v.id for v in visual_assets]
     sentences_data = [
-        {"id": s.id, "text": s.text, "start_time": s.start_time, "end_time": s.end_time}
+        {
+            "id": s.id,
+            "text": s.text,
+            "start_time": s.start_time,
+            "end_time": s.end_time,
+            "words": (json.loads(s.words_json) if getattr(s, "words_json", None) and s.words_json else [])
+        }
         for s in sentences
     ]
 

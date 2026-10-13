@@ -52,6 +52,7 @@ class SentenceItem(BaseModel):
     start_time: float
     end_time: float
     confidence: float = 1.0
+    words: Optional[List[Dict[str, Any]]] = None
 
 class SentenceUpdate(BaseModel):
     sentences: List[SentenceItem]

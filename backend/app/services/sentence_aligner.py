@@ -68,11 +68,21 @@ def align_script_with_words(raw_words: List[Dict[str, Any]], script_sentences: L
 
         start_t = speech_starts[start_idx]
         end_t = speech_ends[end_idx]
+        matched_words = [
+            {
+                "word": raw_words[k]["word"],
+                "start": float(raw_words[k]["start"]),
+                "end": float(raw_words[k]["end"]),
+                "confidence": float(raw_words[k].get("conf", 1.0))
+            }
+            for k in range(start_idx, end_idx + 1)
+        ]
         results.append({
             "text": sent,
             "start": round(start_t, 3),
             "end": round(end_t, 3),
-            "confidence": 0.95
+            "confidence": 0.95,
+            "words": matched_words
         })
         curr_speech_idx = min(n_speech - 1, end_idx + 1)
 
@@ -130,6 +140,7 @@ def transcribe_with_vosk(audio_path: str, user_script: Optional[str] = None) -> 
         # Otherwise group spoken words into sentences based on speech pauses
         sentences = []
         curr_words = []
+        curr_word_objs = []
         curr_start = None
 
         for idx, w in enumerate(raw_words):
@@ -140,6 +151,12 @@ def transcribe_with_vosk(audio_path: str, user_script: Optional[str] = None) -> 
             if curr_start is None:
                 curr_start = w_start
             curr_words.append(word_str)
+            curr_word_objs.append({
+                "word": word_str,
+                "start": w_start,
+                "end": w_end,
+                "confidence": float(w.get("conf", 1.0))
+            })
 
             is_last = (idx == len(raw_words) - 1)
             is_break = False
@@ -159,9 +176,11 @@ def transcribe_with_vosk(audio_path: str, user_script: Optional[str] = None) -> 
                     "text": sent_text,
                     "start": round(curr_start, 3),
                     "end": round(w_end, 3),
-                    "confidence": 0.95
+                    "confidence": 0.95,
+                    "words": curr_word_objs
                 })
                 curr_words = []
+                curr_word_objs = []
                 curr_start = None
 
         return sentences

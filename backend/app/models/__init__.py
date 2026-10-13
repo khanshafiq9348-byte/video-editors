@@ -44,6 +44,7 @@ class Sentence(Base):
     start_time = Column(Float, nullable=False)
     end_time = Column(Float, nullable=False)
     confidence = Column(Float, default=1.0)
+    words_json = Column(Text, nullable=True, default="[]")
 
     project = relationship("Project", back_populates="sentences")
 

@@ -1,5 +1,6 @@
 import os
 import uuid
+import json
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -39,6 +40,7 @@ def analyze_audio(project_id: str, db: Session = Depends(get_db)):
     saved_sentences = []
     for idx, seg in enumerate(segments):
         sent_id = f"sent_{idx+1:03d}_{uuid.uuid4().hex[:6]}"
+        words_data = seg.get("words") or []
         sent = Sentence(
             id=sent_id,
             project_id=project_id,
@@ -46,7 +48,8 @@ def analyze_audio(project_id: str, db: Session = Depends(get_db)):
             text=seg["text"],
             start_time=seg["start"],
             end_time=seg["end"],
-            confidence=seg.get("confidence", 1.0)
+            confidence=seg.get("confidence", 1.0),
+            words_json=json.dumps(words_data)
         )
         db.add(sent)
         saved_sentences.append(sent)
@@ -60,7 +63,8 @@ def analyze_audio(project_id: str, db: Session = Depends(get_db)):
             text=s.text,
             start_time=s.start_time,
             end_time=s.end_time,
-            confidence=s.confidence
+            confidence=s.confidence,
+            words=json.loads(s.words_json) if getattr(s, "words_json", None) else None
         )
         for s in saved_sentences
     ]
@@ -75,7 +79,8 @@ def get_sentences(project_id: str, db: Session = Depends(get_db)):
             text=s.text,
             start_time=s.start_time,
             end_time=s.end_time,
-            confidence=s.confidence
+            confidence=s.confidence,
+            words=json.loads(s.words_json) if getattr(s, "words_json", None) else None
         )
         for s in sentences
     ]
@@ -93,6 +98,7 @@ def update_sentences(project_id: str, req: SentenceUpdate, db: Session = Depends
 
     new_list = []
     for idx, item in enumerate(req.sentences):
+        words_data = item.words or []
         sent = Sentence(
             id=item.id or f"sent_{idx+1:03d}_{uuid.uuid4().hex[:6]}",
             project_id=project_id,
@@ -100,7 +106,8 @@ def update_sentences(project_id: str, req: SentenceUpdate, db: Session = Depends
             text=item.text,
             start_time=item.start_time,
             end_time=item.end_time,
-            confidence=item.confidence
+            confidence=item.confidence,
+            words_json=json.dumps(words_data)
         )
         db.add(sent)
         new_list.append(sent)
@@ -113,7 +120,8 @@ def update_sentences(project_id: str, req: SentenceUpdate, db: Session = Depends
             text=s.text,
             start_time=s.start_time,
             end_time=s.end_time,
-            confidence=s.confidence
+            confidence=s.confidence,
+            words=json.loads(s.words_json) if getattr(s, "words_json", None) else None
         )
         for s in new_list
     ]
