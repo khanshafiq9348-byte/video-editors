@@ -138,7 +138,7 @@ export const CaptionsPanel: React.FC = () => {
       {/* Primary Actions: Generate & Edit text */}
       <div className="p-3 border-b border-[#2A2F3A] space-y-2 bg-[#141720]">
         <button
-          onClick={() => generateCaptions()}
+          onClick={() => generateCaptions({ presetId: selectedPresetId, mode: currentMode })}
           disabled={isLoading}
           className="w-full py-2 px-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
         >

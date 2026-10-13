@@ -21,6 +21,7 @@ export const MediaPanel: React.FC = () => {
   const {
     currentProject,
     loadProject,
+    setTimeline,
     statusMessage,
     setStatusMessage,
     setErrorMessage,
@@ -113,7 +114,8 @@ export const MediaPanel: React.FC = () => {
           const hasVisuals = currentProject.assets.some((a) => a.type === 'image' || a.type === 'video') || mediaFiles.length > 0;
           if (hasVisuals) {
             setStatusMessage('Synchronizing visual timeline with voiceover...');
-            await api.generateTimeline(currentProject.id);
+            const newTl = await api.generateTimeline(currentProject.id);
+            setTimeline(newTl, true);
           }
         } catch (analysisErr) {
           console.warn('Voiceover auto-align notice:', analysisErr);
@@ -167,7 +169,8 @@ export const MediaPanel: React.FC = () => {
         const hasVisuals = currentProject.assets.some((a) => a.type === 'image' || a.type === 'video');
         if (hasVisuals) {
           setStatusMessage('Aligning visuals to spoken sentences...');
-          await api.generateTimeline(currentProject.id);
+          const newTl = await api.generateTimeline(currentProject.id);
+          setTimeline(newTl, true);
         }
       } catch (analysisErr) {
         console.warn('Voiceover auto-align notice:', analysisErr);
@@ -213,7 +216,8 @@ export const MediaPanel: React.FC = () => {
         const hasVisuals = currentProject.assets.some((a) => a.type === 'image' || a.type === 'video');
         if (hasVisuals) {
           setStatusMessage('Aligning visuals to script sentences...');
-          await api.generateTimeline(currentProject.id);
+          const newTl = await api.generateTimeline(currentProject.id);
+          setTimeline(newTl, true);
         }
       }
       await loadProject(currentProject.id);

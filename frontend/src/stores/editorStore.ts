@@ -111,14 +111,34 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
 
       let loadedTimeline = proj.timeline || null;
+      if (!loadedTimeline) {
+        try {
+          const tl = await api.getTimeline(id);
+          if (tl && tl.scenes && tl.scenes.length > 0) {
+            loadedTimeline = tl;
+          }
+        } catch (e) {
+          // No timeline
+        }
+      }
+
+      const currentTl = get().timeline;
+      if ((!loadedTimeline || !loadedTimeline.scenes || loadedTimeline.scenes.length === 0) && currentTl && currentTl.scenes && currentTl.scenes.length > 0) {
+        loadedTimeline = currentTl;
+      }
+
       if (loadedTimeline && (!loadedTimeline.captions || !loadedTimeline.captions.segments || loadedTimeline.captions.segments.length === 0)) {
         try {
           const caps = await api.getCaptions(id);
           if (caps && caps.segments && caps.segments.length > 0) {
             loadedTimeline = { ...loadedTimeline, captions: caps };
+          } else if (currentTl?.captions?.segments && currentTl.captions.segments.length > 0) {
+            loadedTimeline = { ...loadedTimeline, captions: currentTl.captions };
           }
         } catch (e) {
-          // No captions
+          if (currentTl?.captions?.segments && currentTl.captions.segments.length > 0) {
+            loadedTimeline = { ...loadedTimeline, captions: currentTl.captions };
+          }
         }
       }
 
@@ -334,7 +354,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   generateCaptions: async (options?: { presetId?: string; mode?: string; wordsPerSegment?: number }) => {
-    const { currentProject, timeline, setTimeline, loadProject } = get();
+    const { currentProject, timeline, setTimeline } = get();
     if (!currentProject) return;
     try {
       set({ isLoading: true, statusMessage: 'Analyzing voiceover & generating captions...' });
@@ -356,7 +376,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         };
         setTimeline(initTl, true);
       }
-      await loadProject(currentProject.id);
+      try {
+        const sents = await api.getSentences(currentProject.id);
+        if (sents && sents.length > 0) {
+          set({ currentProject: { ...get().currentProject!, sentences: sents } });
+        }
+      } catch (e) {
+        // Safe to ignore
+      }
       set({ isLoading: false, statusMessage: 'Captions generated successfully!' });
     } catch (err: any) {
       set({
@@ -657,21 +684,28 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   autoGenerateTimeline: async () => {
-    const { currentProject, loadProject } = get();
+    const { currentProject, setTimeline } = get();
     if (!currentProject) return;
     try {
       set({ isLoading: true, statusMessage: 'Analyzing voiceover & aligning timeline...' });
       const hasAudio = currentProject.assets.some((a) => a.type === 'audio');
-      if (hasAudio && (!currentProject.sentences || currentProject.sentences.length === 0)) {
-        await api.analyzeAudio(currentProject.id);
+      if (hasAudio) {
+        try {
+          const sentences = await api.analyzeAudio(currentProject.id);
+          if (sentences && sentences.length > 0) {
+            set({ currentProject: { ...get().currentProject!, sentences } });
+          }
+        } catch (e) {
+          console.warn('Audio analysis note:', e);
+        }
       }
       const tl = await api.generateTimeline(currentProject.id);
-      await loadProject(currentProject.id);
-      set({ timeline: tl, isLoading: false, statusMessage: 'Timeline synchronized to voiceover!' });
+      setTimeline(tl, true);
+      set({ isLoading: false, statusMessage: 'Timeline synchronized to voiceover!' });
     } catch (err: any) {
       set({
         isLoading: false,
-        errorMessage: err.response?.data?.detail || 'Timeline generation failed',
+        errorMessage: err.response?.data?.detail || err.message || 'Timeline generation failed',
       });
     }
   },
