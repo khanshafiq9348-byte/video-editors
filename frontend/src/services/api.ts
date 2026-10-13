@@ -437,19 +437,22 @@ export const api = {
     const fps = 30;
     const sceneDur = 90;
     let currStart = 0;
+    const effCycle = ['pan_left', 'zoom_out', 'pan_right', 'zoom_in', 'pan_up', 'zoom_pan'];
     const scenes: SceneItem[] = visualAssets.map((asset, idx) => {
+      const effType = effCycle[idx % effCycle.length];
       const s: SceneItem = {
         id: `scene_${Date.now()}_${idx}`,
         imageAssetId: asset.id,
         startFrame: currStart,
         durationFrames: sceneDur,
+        endFrame: currStart + sceneDur,
         effect: {
-          type: 'zoom_in',
-          intensity: 1.0,
+          type: effType,
+          intensity: 0.15,
         },
         transitionOut: {
           type: 'crossfade',
-          durationFrames: 15,
+          durationFrames: 12,
         },
       };
       currStart += sceneDur;

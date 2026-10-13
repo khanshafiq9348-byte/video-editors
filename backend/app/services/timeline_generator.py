@@ -94,20 +94,34 @@ def get_effect_parameters(effect_type: str, intensity: str = "medium") -> Dict[s
             "startY": 0.0, "endY": 0.0
         }
 
-def select_effect_for_scene(index: int, duration_frames: int, preset: str, intensity: str) -> SceneEffect:
-    if preset == "minimal" or duration_frames < 30:
+def select_effect_for_scene(
+    index: int,
+    duration_frames: int,
+    preset: str,
+    intensity: str,
+    user_effect_style: Optional[str] = None
+) -> SceneEffect:
+    style = (user_effect_style or "").strip().lower()
+
+    # If user selected an explicit effect (e.g. pan_left, zoom_out, static, etc.)
+    if style in ["zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "zoom_pan", "static"]:
+        eff_type = style
+    elif preset == "minimal" or duration_frames < 30:
         eff_type = "static"
     elif preset == "documentary":
-        effs = ["zoom_in", "pan_left", "zoom_out", "pan_right"]
+        # Curated documentary motion cycle with diverse pan & subtle zoom variations
+        effs = ["pan_left", "zoom_out", "pan_right", "zoom_in", "pan_up", "zoom_pan"]
         eff_type = effs[index % len(effs)]
     elif preset == "storytelling":
-        effs = ["zoom_in", "zoom_out", "zoom_pan", "pan_right"]
+        # Narrative style with gentle pans and balanced zoom transitions
+        effs = ["pan_right", "zoom_out", "pan_left", "zoom_pan", "pan_down", "zoom_in"]
         eff_type = effs[index % len(effs)]
     elif preset == "dynamic_youtube":
-        effs = ["zoom_in", "zoom_pan", "pan_left", "zoom_out", "pan_right", "pan_up"]
+        effs = ["pan_left", "zoom_pan", "pan_right", "zoom_out", "pan_up", "zoom_in"]
         eff_type = effs[index % len(effs)]
     else:
-        effs = EFFECT_TYPES
+        # Default: Varied Ken Burns sequence preventing consecutive identical motions
+        effs = ["pan_left", "zoom_out", "pan_right", "zoom_in", "pan_up", "zoom_pan"]
         eff_type = effs[index % len(effs)]
 
     params = get_effect_parameters(eff_type, intensity)
@@ -253,7 +267,13 @@ def generate_timeline(
                     scene_duration = (span_end - scene_start) if sub == num_sub_scenes - 1 else sub_dur
                     scene_end = scene_start + scene_duration
 
-                    eff = select_effect_for_scene(scene_counter, scene_duration, preset, intensity)
+                    eff = select_effect_for_scene(
+                        scene_counter,
+                        scene_duration,
+                        preset,
+                        intensity,
+                        settings.effect_style
+                    )
                     dynamic_trans_frames = max(6, min(trans_dur_frames, scene_duration // 3))
                     trans = select_transition_for_scene(
                         scene_counter,
@@ -292,7 +312,13 @@ def generate_timeline(
                 scene_duration = base_dur
 
             curr_frame += scene_duration
-            eff = select_effect_for_scene(i, scene_duration, preset, intensity)
+            eff = select_effect_for_scene(
+                i,
+                scene_duration,
+                preset,
+                intensity,
+                settings.effect_style
+            )
             dynamic_trans_frames = max(6, min(trans_dur_frames, scene_duration // 3))
             trans = select_transition_for_scene(
                 i,
@@ -326,7 +352,13 @@ def generate_timeline(
             scene_duration = default_scene_dur
             curr_frame += scene_duration
 
-            eff = select_effect_for_scene(i, scene_duration, preset, intensity)
+            eff = select_effect_for_scene(
+                i,
+                scene_duration,
+                preset,
+                intensity,
+                settings.effect_style
+            )
             dynamic_trans_frames = max(6, min(trans_dur_frames, scene_duration // 3))
             trans = select_transition_for_scene(
                 i,

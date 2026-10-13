@@ -140,6 +140,20 @@ export const TopNavigation: React.FC<{ onBackToProjects: () => void }> = ({ onBa
     }
   };
 
+  const handleEffectStyleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newStyle = e.target.value;
+    try {
+      const updatedSettings = {
+        ...currentProject.settings,
+        effect_style: newStyle,
+      };
+      await api.updateProject(currentProject.id, { settings: updatedSettings });
+      await loadProject(currentProject.id);
+    } catch (err) {
+      setErrorMessage('Failed to update animation effect style');
+    }
+  };
+
   const handleConfirmExport = async () => {
     setShowExportModal(false);
 
@@ -246,6 +260,22 @@ export const TopNavigation: React.FC<{ onBackToProjects: () => void }> = ({ onBa
             <option value="slide_right">Transition: Slide Right</option>
             <option value="zoom">Transition: Zoom Dissolve</option>
             <option value="none">Transition: None (Cut)</option>
+          </select>
+
+          {/* Animation Motion Style Selector */}
+          <select
+            value={currentProject.settings?.effect_style || 'automatic'}
+            onChange={handleEffectStyleChange}
+            className="bg-[#232733] border border-[#373e50] rounded-md px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none"
+            title="Motion / Animation Effect Style"
+          >
+            <option value="automatic">Motion: Varied Ken Burns (Subtle)</option>
+            <option value="pan_left">Motion: Pan Left</option>
+            <option value="pan_right">Motion: Pan Right</option>
+            <option value="zoom_out">Motion: Gentle Zoom Out</option>
+            <option value="zoom_in">Motion: Gentle Zoom In</option>
+            <option value="zoom_pan">Motion: Zoom & Pan</option>
+            <option value="static">Motion: Static (No Zoom)</option>
           </select>
         </div>
 
